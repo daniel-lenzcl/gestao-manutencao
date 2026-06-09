@@ -1,0 +1,13 @@
+# Tentativas anteriores criadas pelo GitHub Desktop
+/manutencao/
+/manutencao predial/
+/predial/
+
+# Norma técnica compactada: não publicar no repositório
+/NBR 15575.rar
+
+# Arquivos temporários do Office e do sistema
+~$*
+Thumbs.db
+.DS_Store
+
