@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Manutencao Predial</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Protótipo web responsivo</p>
+        <h1>Manutenção predial</h1>
+      </div>
+      <div class="header-actions">
+        <button class="ghost-button" id="reset-data" type="button">Restaurar dados</button>
+        <button class="primary-button" id="new-asset" type="button">Novo ativo</button>
+      </div>
+    </header>
+
+    <main>
+      <nav class="tabs" aria-label="Seções do aplicativo">
+        <button class="tab active" data-view="dashboard" type="button">Dashboard</button>
+        <button class="tab" data-view="assets" type="button">Ativos</button>
+        <button class="tab" data-view="timeline" type="button">Cronograma</button>
+        <button class="tab" data-view="finance" type="button">Financeiro</button>
+      </nav>
+
+      <section class="view active" id="dashboard-view">
+        <div class="dashboard-overview">
+          <section class="panel dashboard-chart-panel">
+            <div class="dashboard-chart-header">
+              <div>
+                <p class="eyebrow">Fluxo mensal</p>
+                <h2 id="dashboard-chart-title"></h2>
+              </div>
+              <div class="dashboard-chart-legend" aria-label="Legenda do gráfico">
+                <span><i class="provision"></i>Provisionamento</span>
+                <span><i class="execution"></i>Gastos</span>
+              </div>
+            </div>
+            <div id="dashboard-monthly-chart" class="dashboard-monthly-chart"></div>
+            <div id="calendar-detail" class="calendar-detail dashboard-action-detail"></div>
+          </section>
+          <div class="dashboard-finance-summary">
+            <div class="kpi-grid" id="kpi-grid"></div>
+            <section class="panel calendar-panel">
+              <div class="calendar-header">
+                <button class="icon-button" id="calendar-prev" type="button" aria-label="Mês anterior">‹</button>
+                <button class="calendar-today-button" id="calendar-today" type="button">
+                  <span>Hoje</span>
+                  <strong id="calendar-today-date"></strong>
+                </button>
+                <div>
+                  <p class="eyebrow">Calendário de atividades</p>
+                  <h2 id="calendar-title"></h2>
+                </div>
+                <button class="icon-button" id="calendar-next" type="button" aria-label="Próximo mês">›</button>
+              </div>
+              <div class="calendar-slider-wrap">
+                <div class="calendar-slider-labels">
+                  <span id="calendar-slider-min"></span>
+                  <span id="calendar-slider-max"></span>
+                </div>
+                <input id="calendar-slider" type="range" min="0" max="0" value="0" step="1" aria-label="Navegar pelo período do planejamento" />
+              </div>
+              <div id="calendar-flow-summary" class="calendar-flow-summary"></div>
+              <div id="calendar-months" class="calendar-months"></div>
+              <div class="calendar-legend" aria-label="Legenda do calendário">
+                <span><i class="completed"></i>Passado cumprido</span>
+                <span><i class="missed"></i>Passado perdido</span>
+                <span><i class="future-maintenance"></i>Manutenção futura</span>
+                <span><i class="future-replacement"></i>Troca futura</span>
+              </div>
+            </section>
+          </div>
+        </div>
+        <div class="panel-grid">
+          <section class="panel">
+            <div class="panel-title">
+              <h2>Custos por sistema</h2>
+              <span>execuções futuras no horizonte</span>
+            </div>
+            <div id="system-bars" class="bar-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-title">
+              <h2>Próximas etapas</h2>
+              <span>agenda</span>
+            </div>
+            <div id="next-events" class="event-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="assets-view">
+        <div class="toolbar">
+          <label class="search-box">
+            <span>Buscar</span>
+            <input id="asset-search" type="search" placeholder="Ambiente, sistema, ativo..." />
+          </label>
+          <label class="select-box">
+            <span>Sistema</span>
+            <select id="system-filter"></select>
+          </label>
+          <label class="select-box">
+            <span>Ordenar por</span>
+            <select id="asset-sort">
+              <option value="alphabetical">Ordem alfabética</option>
+              <option value="start-date">Data inicial</option>
+              <option value="end-date">Data final</option>
+              <option value="last-maintenance">Última manutenção</option>
+              <option value="next-maintenance">Próxima manutenção</option>
+              <option value="cycles-asc">Total de ciclos crescente</option>
+              <option value="cycles-desc">Total de ciclos decrescente</option>
+              <option value="life-asc">Expectativa de vida crescente</option>
+              <option value="life-desc">Expectativa de vida decrescente</option>
+              <option value="provision-asc">Provisionamento mensal crescente</option>
+              <option value="provision-desc">Provisionamento mensal decrescente</option>
+              <option value="value-desc">Valor decrescente</option>
+              <option value="value-asc">Valor crescente</option>
+            </select>
+          </label>
+        </div>
+        <div id="asset-list" class="asset-list"></div>
+      </section>
+
+      <section class="view" id="timeline-view">
+        <div class="toolbar">
+          <label class="select-box">
+            <span>Horizonte de planejamento (anos)</span>
+            <input id="planning-horizon" min="1" type="number" value="50" />
+          </label>
+          <label class="select-box">
+            <span>Ano</span>
+            <select id="year-filter"></select>
+          </label>
+          <label class="select-box">
+            <span>Status</span>
+            <select id="status-filter">
+              <option value="">Todos</option>
+              <option>Vencido</option>
+              <option>Próx. 30 dias</option>
+              <option>Próx. 90 dias</option>
+              <option>Programado</option>
+            </select>
+          </label>
+        </div>
+        <div id="timeline-list" class="timeline-list"></div>
+      </section>
+
+      <section class="view" id="finance-view">
+        <div class="panel">
+          <div class="panel-title">
+            <h2>Execução x provisionamento</h2>
+            <span>por mês e por ano</span>
+          </div>
+          <div id="year-bars" class="year-bars"></div>
+        </div>
+        <div class="panel finance-panel">
+          <div class="panel-title">
+            <h2>Fluxo mensal</h2>
+            <span>provisão e execução</span>
+          </div>
+          <div class="finance-controls">
+            <label>
+              Condominos
+              <input id="owners-input" min="1" type="number" value="20" />
+            </label>
+            <label>
+              Reserva inicial
+              <input id="reserve-input" min="0" step="500" type="number" value="0" />
+            </label>
+          </div>
+          <div id="finance-table" class="finance-table"></div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="asset-dialog">
+      <form method="dialog" id="asset-form">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Cadastro</p>
+            <h2 id="dialog-title">Novo ativo</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Fechar">×</button>
+        </div>
+
+        <input id="asset-id" type="hidden" />
+        <div class="form-grid">
+          <label class="choice-field">Ambiente <select id="asset-ambiente" required></select><input class="new-choice" id="asset-ambiente-new" placeholder="Novo ambiente" /></label>
+          <label class="choice-field">Sistema <select id="asset-sistema" required></select><input class="new-choice" id="asset-sistema-new" placeholder="Novo sistema" /></label>
+          <label class="choice-field">Ativo <select id="asset-ativo" required></select><input class="new-choice" id="asset-ativo-new" placeholder="Novo ativo" /></label>
+          <label class="choice-field">Componente <select id="asset-componente"></select><input class="new-choice" id="asset-componente-new" placeholder="Novo componente" /></label>
+          <label class="choice-field">Ação prevista <select id="asset-acao"></select><input class="new-choice" id="asset-acao-new" placeholder="Nova ação prevista" /></label>
+          <label>Periodicidade (meses) <input id="asset-periodicidade" min="1" type="number" /></label>
+          <label>Última manutenção <input id="asset-ultima" type="date" /></label>
+          <label>Custo unitário <span class="money-input"><span>R$</span><input id="asset-custo" inputmode="decimal" placeholder="0,00" type="text" /></span></label>
+          <label>Data de instalação <input id="asset-instalacao" type="date" /></label>
+          <label>Expectativa de vida (anos) <input id="asset-vida" min="1" type="number" /></label>
+          <label>Valor do ativo <span class="money-input"><span>R$</span><input id="asset-valor" inputmode="decimal" placeholder="0,00" type="text" /></span></label>
+          <fieldset class="life-end-field">
+            <legend>Ao fim da vida</legend>
+            <label><input id="asset-renovar" name="asset-fim-vida" type="radio" value="renovar" checked /> Renovar</label>
+            <label><input id="asset-encerrar" name="asset-fim-vida" type="radio" value="encerrar" /> Encerrar</label>
+          </fieldset>
+          <label>Total de ciclos <input id="asset-ciclos" min="1" type="number" value="1" /></label>
+          <label class="choice-field">Prioridade <select id="asset-prioridade"></select><input class="new-choice" id="asset-prioridade-new" placeholder="Nova prioridade" /></label>
+          <label class="choice-field">Responsável <select id="asset-responsavel"></select><input class="new-choice" id="asset-responsavel-new" placeholder="Novo responsável" /></label>
+        </div>
+
+        <section class="asset-summary" id="asset-summary">
+          Preencha data de instalação, vida útil, periodicidade e custos para ver o resumo.
+        </section>
+
+        <label class="photo-field">
+          Foto do ativo ou ocorrência
+          <input id="asset-foto" accept="image/*" capture="environment" type="file" />
+          <span>Use a câmera do celular ou selecione uma imagem.</span>
+        </label>
+        <img id="photo-preview" class="photo-preview" alt="" />
+
+        <menu class="dialog-actions">
+          <button class="danger-button" id="delete-asset" type="button">Excluir ativo</button>
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" id="save-asset" value="default" type="button">Salvar</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="./data/seed-data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
