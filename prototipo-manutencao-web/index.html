@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Manutencao Predial</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260610-4" />
   </head>
   <body>
     <header class="app-header">
@@ -146,6 +146,32 @@
             </select>
           </label>
         </div>
+        <section class="panel timeline-calendar-panel">
+          <div class="timeline-calendar-header">
+            <button class="icon-button" id="timeline-calendar-prev" type="button" aria-label="Meses anteriores">‹</button>
+            <div>
+              <p class="eyebrow">Calendário do cronograma</p>
+              <h2 id="timeline-calendar-title"></h2>
+            </div>
+            <button class="calendar-today-button" id="timeline-calendar-today" type="button">
+              <span>Hoje</span>
+              <strong id="timeline-calendar-today-date"></strong>
+            </button>
+            <button class="icon-button" id="timeline-calendar-next" type="button" aria-label="Próximos meses">›</button>
+          </div>
+          <div class="timeline-calendar-slider">
+            <span id="timeline-calendar-min"></span>
+            <input id="timeline-calendar-range" type="range" min="0" max="0" value="0" step="1" aria-label="Navegar pelo calendário do cronograma" />
+            <span id="timeline-calendar-max"></span>
+          </div>
+          <div id="timeline-calendar-months" class="timeline-calendar-months"></div>
+          <div class="calendar-legend" aria-label="Legenda do calendário">
+            <span><i class="completed"></i>Passado cumprido</span>
+            <span><i class="missed"></i>Passado perdido</span>
+            <span><i class="future-maintenance"></i>Manutenção futura</span>
+            <span><i class="future-replacement"></i>Troca futura</span>
+          </div>
+        </section>
         <div id="timeline-list" class="timeline-list"></div>
       </section>
 
@@ -229,7 +255,7 @@
       </form>
     </dialog>
 
-    <script src="./data/seed-data.js"></script>
-    <script src="./app.js"></script>
+    <script src="./data/seed-data.js?v=20260610-1"></script>
+    <script src="./app.js?v=20260610-1"></script>
   </body>
 </html>

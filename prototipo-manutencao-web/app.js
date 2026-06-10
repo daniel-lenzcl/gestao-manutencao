@@ -8,6 +8,7 @@ let state = loadState();
 let editingPhoto = "";
 let focusedAssetId = "";
 let calendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let timelineCalendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 const newChoiceValue = "__new__";
 
 function loadState() {
@@ -261,6 +262,7 @@ function render() {
   renderFilters();
   renderAssets();
   renderTimeline();
+  renderTimelineCalendar();
   renderFinance();
 }
 
@@ -582,6 +584,91 @@ function renderCalendar() {
     day.addEventListener("click", () => showCalendarDay(day, eventsByDate[day.dataset.date] || []));
   });
   renderDashboardChart();
+}
+
+function renderTimelineCalendar() {
+  const container = document.querySelector("#timeline-calendar-months");
+  const timelineView = document.querySelector("#timeline-view");
+  if (!container || !timelineView?.classList.contains("active")) return;
+  const bounds = calendarBounds();
+  const cursorIndex = Math.max(bounds.minIndex, Math.min(bounds.maxIndex, calendarMonthIndex(timelineCalendarCursor)));
+  timelineCalendarCursor = new Date(Math.floor(cursorIndex / 12), cursorIndex % 12, 1);
+  const availableWidth = Math.max(320, container.getBoundingClientRect().width || timelineView.getBoundingClientRect().width);
+  const totalMonths = Math.max(1, bounds.maxIndex - bounds.minIndex + 1);
+  const monthCount = Math.min(totalMonths, Math.max(3, Math.floor(availableWidth / 175)));
+  const leftCount = Math.floor((monthCount - 1) / 2);
+  const maxStartIndex = Math.max(bounds.minIndex, bounds.maxIndex - monthCount + 1);
+  const startIndex = Math.max(bounds.minIndex, Math.min(cursorIndex - leftCount, maxStartIndex));
+  const visibleIndexes = Array.from({ length: monthCount }, (_, index) => startIndex + index).filter(
+    (index) => index >= bounds.minIndex && index <= bounds.maxIndex,
+  );
+  const eventsByDate = state.recurrenceEvents.reduce((groups, event) => {
+    const date = safeDate(event.data);
+    if (!date) return groups;
+    const key = calendarDateKey(date);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(event);
+    return groups;
+  }, {});
+  const todayKey = calendarDateKey(new Date());
+  const monthFormatter = new Intl.DateTimeFormat("pt-BR", { month: "short" });
+
+  document.querySelector("#timeline-calendar-title").textContent = new Intl.DateTimeFormat("pt-BR", {
+    month: "long",
+    year: "numeric",
+  }).format(timelineCalendarCursor);
+  document.querySelector("#timeline-calendar-today-date").textContent = calendarSliderLabel(new Date());
+  document.querySelector("#timeline-calendar-min").textContent = calendarSliderLabel(bounds.min);
+  document.querySelector("#timeline-calendar-max").textContent = calendarSliderLabel(bounds.max);
+
+  const range = document.querySelector("#timeline-calendar-range");
+  range.max = Math.max(0, bounds.maxIndex - bounds.minIndex);
+  range.value = cursorIndex - bounds.minIndex;
+  const todayIndex = Math.max(bounds.minIndex, Math.min(bounds.maxIndex, calendarMonthIndex(new Date())));
+  const realProgress = Number(range.max) ? ((todayIndex - bounds.minIndex) / Number(range.max)) * 100 : 0;
+  range.style.setProperty("--real-progress", `${realProgress}%`);
+
+  document.querySelector("#timeline-calendar-prev").disabled = cursorIndex <= bounds.minIndex;
+  document.querySelector("#timeline-calendar-next").disabled = cursorIndex >= bounds.maxIndex;
+  container.style.setProperty("--timeline-month-count", visibleIndexes.length);
+  container.innerHTML = visibleIndexes
+    .map((index) => {
+      const cursor = new Date(Math.floor(index / 12), index % 12, 1);
+      const year = cursor.getFullYear();
+      const month = cursor.getMonth();
+      const gridStart = new Date(year, month, 1 - cursor.getDay());
+      const days = Array.from({ length: 42 }, (_, dayIndex) => {
+        const date = new Date(gridStart);
+        date.setDate(gridStart.getDate() + dayIndex);
+        const key = calendarDateKey(date);
+        const events = eventsByDate[key] || [];
+        const outside = date.getMonth() !== month;
+        const categories = [...new Set(events.map((event) => calendarEventCategory(event, key, todayKey)))];
+        const background = categories.length ? `style="--event-background: ${calendarEventBackground(categories)}"` : "";
+        const textTone = categories.length === 1 && categories[0] === "futureMaintenance" ? "dark-text" : "light-text";
+        return `<button class="calendar-day ${outside ? "outside" : ""} ${key === todayKey ? "today" : ""} ${events.length ? `has-events ${textTone}` : ""}" data-date="${key}" type="button" ${background}>
+          <span class="calendar-day-number">${date.getDate()}</span>
+        </button>`;
+      }).join("");
+      return `<section class="calendar-month ${index === cursorIndex ? "current" : "adjacent"}">
+        <h3>${monthFormatter.format(cursor)} <span>${year}</span></h3>
+        <div class="calendar-weekdays" aria-hidden="true">
+          <span>D</span><span>S</span><span>T</span><span>Q</span><span>Q</span><span>S</span><span>S</span>
+        </div>
+        <div class="calendar-grid">${days}</div>
+      </section>`;
+    })
+    .join("");
+
+  container.querySelectorAll(".calendar-day[data-date]").forEach((day) => {
+    day.addEventListener("click", () => {
+      const date = safeDate(day.dataset.date);
+      timelineCalendarCursor = new Date(date.getFullYear(), date.getMonth(), 1);
+      document.querySelector("#year-filter").value = String(date.getFullYear());
+      renderTimeline();
+      renderTimelineCalendar();
+    });
+  });
 }
 
 function showCalendarDay(day, events) {
@@ -1105,6 +1192,9 @@ function showExecutionDetail(row, month, events, persist = false) {
 function activateView(view) {
   document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   document.querySelectorAll(".view").forEach((item) => item.classList.toggle("active", item.id === `${view}-view`));
+  if (view === "timeline") {
+    requestAnimationFrame(() => requestAnimationFrame(renderTimelineCalendar));
+  }
 }
 
 function goToAsset(assetId) {
@@ -1484,6 +1574,30 @@ document.querySelector("#calendar-today").addEventListener("click", () => {
   clampCalendarCursor();
   renderCalendar();
   renderKpis();
+});
+document.querySelector("#timeline-calendar-prev").addEventListener("click", () => {
+  timelineCalendarCursor = addMonths(timelineCalendarCursor, -1);
+  renderTimelineCalendar();
+});
+document.querySelector("#timeline-calendar-next").addEventListener("click", () => {
+  timelineCalendarCursor = addMonths(timelineCalendarCursor, 1);
+  renderTimelineCalendar();
+});
+document.querySelector("#timeline-calendar-today").addEventListener("click", () => {
+  const today = new Date();
+  timelineCalendarCursor = new Date(today.getFullYear(), today.getMonth(), 1);
+  renderTimelineCalendar();
+});
+document.querySelector("#timeline-calendar-range").addEventListener("input", (event) => {
+  const bounds = calendarBounds();
+  const index = bounds.minIndex + Number(event.target.value || 0);
+  timelineCalendarCursor = new Date(Math.floor(index / 12), index % 12, 1);
+  renderTimelineCalendar();
+});
+let timelineCalendarResizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(timelineCalendarResizeTimer);
+  timelineCalendarResizeTimer = setTimeout(renderTimelineCalendar, 120);
 });
 document.querySelector("#planning-horizon").addEventListener("change", (event) => {
   state.settings.planningHorizonYears = Math.max(1, Number(event.target.value || 50));

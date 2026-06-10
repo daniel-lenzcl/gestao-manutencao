@@ -1230,6 +1230,88 @@ select,
   font-weight: 700;
 }
 
+.timeline-calendar-panel {
+  margin-bottom: 16px;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.timeline-calendar-header {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto 1fr auto auto;
+  margin-bottom: 7px;
+  text-align: center;
+}
+
+.timeline-calendar-header h2 {
+  font-size: 18px;
+  text-transform: capitalize;
+}
+
+.timeline-calendar-header .eyebrow {
+  font-size: 9px;
+  margin-bottom: 1px;
+}
+
+.timeline-calendar-header .icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.22;
+}
+
+.timeline-calendar-slider {
+  align-items: center;
+  color: var(--muted);
+  display: grid;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 8px;
+  gap: 8px;
+  grid-template-columns: auto 1fr auto;
+  margin-bottom: 8px;
+}
+
+#timeline-calendar-range {
+  --real-progress: 0%;
+  appearance: none;
+  background: linear-gradient(90deg, #174f46 0 var(--real-progress), rgba(23, 109, 99, 0.16) var(--real-progress) 100%);
+  border-radius: 999px;
+  cursor: pointer;
+  height: 5px;
+  margin: 0;
+  min-height: 5px;
+  padding: 0;
+  width: 100%;
+}
+
+#timeline-calendar-range::-webkit-slider-thumb {
+  appearance: none;
+  background: #fffaf0;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  height: 15px;
+  width: 15px;
+}
+
+.timeline-calendar-months {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(var(--timeline-month-count, 3), minmax(0, 1fr));
+}
+
+.timeline-calendar-months .calendar-month {
+  height: 194px;
+}
+
+.timeline-calendar-months .calendar-day {
+  min-height: 17px;
+}
+
+.timeline-calendar-months .calendar-month.adjacent {
+  filter: saturate(0.65);
+  opacity: 0.58;
+}
+
 .year-bars {
   display: grid;
   gap: 8px;
@@ -1516,12 +1598,32 @@ dialog::backdrop {
     display: grid;
   }
 
-  .dashboard-overview,
   .kpi-grid,
   .panel-grid,
   .form-grid,
   .summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-overview {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dashboard-finance-summary {
+    display: contents;
+  }
+
+  .calendar-panel {
+    order: 1;
+  }
+
+  .dashboard-chart-panel {
+    order: 2;
+  }
+
+  .kpi-grid {
+    order: 3;
   }
 
   .kpi-grid {
@@ -1541,10 +1643,69 @@ dialog::backdrop {
     grid-template-columns: 1fr;
   }
 
+  .calendar-months {
+    display: flex;
+    gap: 0;
+    overflow: hidden;
+  }
+
+  .calendar-month {
+    flex: 0 0 66.666%;
+  }
+
+  .calendar-month:first-child {
+    margin-left: -50%;
+  }
+
+  .calendar-month.current {
+    position: relative;
+    z-index: 1;
+  }
+
   .calendar-day {
     aspect-ratio: 1;
-    min-height: 15px;
-    padding: 2px;
+    min-height: 24px;
+    padding: 3px;
+  }
+
+  .calendar-day-number {
+    font-size: 10px;
+  }
+
+  .calendar-weekdays {
+    font-size: 9px;
+  }
+
+  .calendar-month h3 {
+    font-size: 12px;
+  }
+
+  .timeline-calendar-months {
+    display: flex;
+    gap: 0;
+    overflow: hidden;
+  }
+
+  .timeline-calendar-months .calendar-month {
+    flex: 0 0 66.666%;
+    height: auto;
+  }
+
+  .timeline-calendar-months .calendar-month:first-child {
+    margin-left: -50%;
+  }
+
+  .timeline-calendar-months .calendar-month.current {
+    position: relative;
+    z-index: 1;
+  }
+
+  .dashboard-monthly-chart {
+    min-height: 170px;
+  }
+
+  .dashboard-monthly-chart svg {
+    max-height: 205px;
   }
 
   .asset-card {
