@@ -4,29 +4,82 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Manutencao Predial</title>
-    <link rel="stylesheet" href="./styles.css?v=20260610-4" />
+    <link rel="stylesheet" href="./styles.css?v=20260611-2" />
   </head>
-  <body>
+  <body class="auth-pending">
+    <section class="auth-screen" id="auth-screen" aria-labelledby="auth-title">
+      <div class="auth-visual" aria-hidden="true">
+        <div class="auth-building-mark">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <p>Planejar. Manter. Preservar.</p>
+      </div>
+      <div class="auth-card">
+        <div>
+          <p class="eyebrow">Gestão predial</p>
+          <h1 id="auth-title">Acesse suas edificações</h1>
+          <p class="auth-intro">Entre para consultar modelos, localizações, sistemas e o planejamento de cada edificação.</p>
+        </div>
+        <form id="login-form" class="auth-form">
+          <label class="signup-only">
+            Nome
+            <input id="signup-name" type="text" autocomplete="name" />
+          </label>
+          <label>
+            E-mail
+            <input id="login-email" type="email" autocomplete="username" required />
+          </label>
+          <label>
+            Senha
+            <input id="login-password" type="password" autocomplete="current-password" required />
+          </label>
+          <label class="signup-only">
+            Confirmar senha
+            <input id="signup-password-confirmation" type="password" autocomplete="new-password" />
+          </label>
+          <button class="primary-button auth-submit" id="login-submit" type="submit">Entrar</button>
+          <p class="auth-message" id="auth-message" role="status"></p>
+        </form>
+        <button class="auth-mode-toggle" id="auth-mode-toggle" type="button">Ainda não tenho conta</button>
+        <div class="demo-access">
+          <span>Acessos de demonstração</span>
+          <button type="button" data-demo-user="owner">Proprietário · duas casas</button>
+          <button type="button" data-demo-user="manager">Gestor · uma casa</button>
+        </div>
+      </div>
+    </section>
+
     <header class="app-header">
       <div>
         <p class="eyebrow">Protótipo web responsivo</p>
         <h1>Manutenção predial</h1>
       </div>
       <div class="header-actions">
-        <button class="ghost-button" id="reset-data" type="button">Restaurar dados</button>
+        <div class="session-user">
+          <span>Conectado como</span>
+          <strong id="session-user-name"></strong>
+        </div>
+        <button class="ghost-button" id="logout-button" type="button">Sair</button>
+        <button class="ghost-button" id="reset-data" type="button">Recarregar dados</button>
         <button class="primary-button" id="new-asset" type="button">Novo ativo</button>
       </div>
     </header>
 
     <main>
       <nav class="tabs" aria-label="Seções do aplicativo">
-        <button class="tab active" data-view="dashboard" type="button">Dashboard</button>
-        <button class="tab" data-view="assets" type="button">Ativos</button>
+        <button class="tab active" data-view="buildings" type="button">Edificações</button>
+        <button class="tab" data-view="dashboard" type="button">Dashboard</button>
         <button class="tab" data-view="timeline" type="button">Cronograma</button>
         <button class="tab" data-view="finance" type="button">Financeiro</button>
+        <button class="tab" data-view="assets" type="button">Ativos</button>
+        <button class="tab" data-view="systems" type="button">Sistemas</button>
       </nav>
 
-      <section class="view active" id="dashboard-view">
+      <section class="view" id="dashboard-view">
+        <section class="report-building-filter">
+          <div><span>Edificações consideradas</span><strong id="dashboard-building-summary"></strong></div>
+          <div class="building-checks" id="dashboard-building-filter"></div>
+        </section>
         <div class="dashboard-overview">
           <section class="panel dashboard-chart-panel">
             <div class="dashboard-chart-header">
@@ -93,7 +146,55 @@
         </div>
       </section>
 
+      <section class="view active" id="buildings-view">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Estrutura física</p>
+            <h2>Edificações e localizações</h2>
+            <p>Cadastre os prédios e organize pavimentos, unidades, ambientes e áreas técnicas em uma árvore.</p>
+          </div>
+          <button class="primary-button" id="new-building" type="button">Nova edificação</button>
+        </div>
+        <div id="buildings-message" class="data-message" role="status"></div>
+        <div id="buildings-list" class="buildings-list"></div>
+      </section>
+
+      <section class="view" id="systems-view">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Biblioteca técnica</p>
+            <h2>Sistemas da edificação</h2>
+            <p>Use a classificação da NBR 15575 e normas complementares como base do cadastro.</p>
+          </div>
+          <label class="select-box building-system-filter">
+            <span>Edificação</span>
+            <select id="systems-building-filter"></select>
+          </label>
+        </div>
+        <div class="systems-layout">
+          <section class="panel standards-panel">
+            <div class="panel-title">
+              <h2>Catálogo normativo</h2>
+              <span>sugestões para cadastro</span>
+            </div>
+            <div id="standards-catalog" class="standards-catalog"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-title">
+              <h2>Sistemas cadastrados</h2>
+              <button class="ghost-button" id="new-custom-system" type="button">Sistema personalizado</button>
+            </div>
+            <div id="systems-message" class="data-message" role="status"></div>
+            <div id="building-systems-list" class="building-systems-list"></div>
+          </section>
+        </div>
+      </section>
+
       <section class="view" id="assets-view">
+        <section class="report-building-filter">
+          <div><span>Edificações consideradas</span><strong id="assets-building-summary"></strong></div>
+          <div class="building-checks" id="assets-building-filter"></div>
+        </section>
         <div class="toolbar">
           <label class="search-box">
             <span>Buscar</span>
@@ -126,10 +227,15 @@
       </section>
 
       <section class="view" id="timeline-view">
+        <section class="report-building-filter">
+          <div><span>Edificações consideradas</span><strong id="timeline-building-summary"></strong></div>
+          <div class="building-checks" id="timeline-building-filter"></div>
+        </section>
         <div class="toolbar">
           <label class="select-box">
-            <span>Horizonte de planejamento (anos)</span>
-            <input id="planning-horizon" min="1" type="number" value="50" />
+            <span>Horizonte das edificações selecionadas (anos)</span>
+            <input id="planning-horizon" min="1" type="number" placeholder="Vários" />
+            <small id="planning-horizon-note"></small>
           </label>
           <label class="select-box">
             <span>Ano</span>
@@ -176,6 +282,11 @@
       </section>
 
       <section class="view" id="finance-view">
+        <section class="report-building-filter">
+          <div><span>Edificações consideradas</span><strong id="finance-building-summary"></strong></div>
+          <div class="building-checks" id="finance-building-filter"></div>
+        </section>
+        <div class="data-message success" id="finance-horizon-summary"></div>
         <div class="panel">
           <div class="panel-title">
             <h2>Execução x provisionamento</h2>
@@ -203,6 +314,85 @@
       </section>
     </main>
 
+    <dialog id="building-dialog">
+      <form method="dialog" id="building-form">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow" id="building-dialog-eyebrow">Nova estrutura</p>
+            <h2 id="building-dialog-title">Criar edificação</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Fechar">×</button>
+        </div>
+        <input id="building-id" type="hidden" />
+        <div class="form-grid">
+          <label>Nome <input id="building-name" required placeholder="Ex.: Edifício Costalima" /></label>
+          <label>Identificação <input id="building-code" required placeholder="Ex.: BLOCO-A" /></label>
+          <label>Tipo <select id="building-type" required></select></label>
+          <label class="wide-field">Endereço <input id="building-address" placeholder="Rua, número, complemento, bairro, cidade e UF" /></label>
+          <label>Início da supervisão <input id="building-supervision-start" type="date" /></label>
+          <label>Horizonte de planejamento (anos) <input id="building-planning-horizon" min="1" type="number" value="50" /></label>
+        </div>
+        <menu class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" id="save-building" value="default" type="button">Criar edificação</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="location-dialog">
+      <form method="dialog" id="location-form">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Árvore da edificação</p>
+            <h2 id="location-dialog-title">Nova localização</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Fechar">×</button>
+        </div>
+        <input id="location-id" type="hidden" />
+        <input id="location-building-id" type="hidden" />
+        <div class="form-grid">
+          <label>Nome <input id="location-name" required placeholder="Ex.: 2º pavimento" /></label>
+          <label>Tipo
+            <select id="location-type" required>
+              <option value="bloco">Bloco</option>
+              <option value="pavimento">Pavimento</option>
+              <option value="unidade">Unidade</option>
+              <option value="ambiente" selected>Ambiente</option>
+              <option value="area_comum">Área comum</option>
+              <option value="area_tecnica">Área técnica</option>
+              <option value="area_externa">Área externa</option>
+            </select>
+          </label>
+          <label>Localização superior <select id="location-parent"></select></label>
+        </div>
+        <menu class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" id="save-location" value="default" type="button">Adicionar</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="system-dialog">
+      <form method="dialog" id="system-form">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Sistema personalizado</p>
+            <h2>Novo sistema</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Fechar">×</button>
+        </div>
+        <div class="form-grid">
+          <label>Nome <input id="custom-system-name" required /></label>
+          <label>Norma ou referência <input id="custom-system-standard" placeholder="Opcional" /></label>
+          <label class="wide-field">Descrição <textarea id="custom-system-description" rows="3"></textarea></label>
+        </div>
+        <menu class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" id="save-custom-system" value="default" type="button">Adicionar</button>
+        </menu>
+      </form>
+    </dialog>
+
     <dialog id="asset-dialog">
       <form method="dialog" id="asset-form">
         <div class="dialog-header">
@@ -215,9 +405,15 @@
 
         <input id="asset-id" type="hidden" />
         <div class="form-grid">
-          <label class="choice-field">Ambiente <select id="asset-ambiente" required></select><input class="new-choice" id="asset-ambiente-new" placeholder="Novo ambiente" /></label>
-          <label class="choice-field">Sistema <select id="asset-sistema" required></select><input class="new-choice" id="asset-sistema-new" placeholder="Novo sistema" /></label>
-          <label class="choice-field">Ativo <select id="asset-ativo" required></select><input class="new-choice" id="asset-ativo-new" placeholder="Novo ativo" /></label>
+          <label class="wide-field">Edificação
+            <select id="asset-building" required>
+              <option value="">Pendente — selecione a edificação</option>
+            </select>
+            <small>O ativo só participará dos relatórios da edificação depois desta atribuição.</small>
+          </label>
+          <label class="choice-field">Ambiente <select id="asset-ambiente"></select><input class="new-choice" id="asset-ambiente-new" placeholder="Novo ambiente" /></label>
+          <label class="choice-field">Sistema <select id="asset-sistema"></select><input class="new-choice" id="asset-sistema-new" placeholder="Novo sistema" /></label>
+          <label class="choice-field">Ativo <select id="asset-ativo"></select><input class="new-choice" id="asset-ativo-new" placeholder="Novo ativo" /></label>
           <label class="choice-field">Componente <select id="asset-componente"></select><input class="new-choice" id="asset-componente-new" placeholder="Novo componente" /></label>
           <label class="choice-field">Ação prevista <select id="asset-acao"></select><input class="new-choice" id="asset-acao-new" placeholder="Nova ação prevista" /></label>
           <label>Periodicidade (meses) <input id="asset-periodicidade" min="1" type="number" /></label>
@@ -255,7 +451,8 @@
       </form>
     </dialog>
 
+    <script src="./supabase-config.js?v=20260610-1"></script>
     <script src="./data/seed-data.js?v=20260610-1"></script>
-    <script src="./app.js?v=20260610-1"></script>
+    <script src="./app.js?v=20260611-7"></script>
   </body>
 </html>

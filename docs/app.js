@@ -1,8 +1,102 @@
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const dateFmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
 const monthFmt = new Intl.DateTimeFormat("pt-BR", { month: "short" });
-const seed = window.MANUTENCAO_SEED;
-const storageKey = "manutencao-prototipo-state-v1";
+const supabaseConfig = window.SUPABASE_CONFIG || {};
+const authStorageKey = "gestao-predial-auth-v1";
+const storageKeyBase = "manutencao-prototipo-state-v2";
+let storageKey = `${storageKeyBase}-guest`;
+let currentSession = null;
+let currentUserId = "";
+let currentUserEmail = "";
+let appRendered = false;
+let authMode = "login";
+let buildingData = {
+  buildings: [],
+  buildingTypes: [],
+  locations: [],
+  systems: [],
+  loaded: false,
+};
+const openBuildingIds = new Set();
+const pendingBuildingKey = "__pending__";
+const reportBuildingSelections = {
+  assets: new Set(),
+  dashboard: new Set(),
+  timeline: new Set(),
+  finance: new Set(),
+};
+const normativeSystems = [
+  {
+    key: "nbr15575-2-estrutural",
+    name: "Sistemas estruturais",
+    standard: "ABNT NBR 15575-2",
+    description: "Elementos estruturais e sua estabilidade, segurança e durabilidade.",
+    group: "NBR 15575",
+  },
+  {
+    key: "nbr15575-3-pisos",
+    name: "Sistemas de pisos",
+    standard: "ABNT NBR 15575-3",
+    description: "Camadas do piso, revestimentos, contrapiso e interfaces.",
+    group: "NBR 15575",
+  },
+  {
+    key: "nbr15575-4-vedacoes",
+    name: "Vedações verticais internas e externas",
+    standard: "ABNT NBR 15575-4",
+    description: "Paredes, fachadas, divisórias, portas e janelas integradas às vedações.",
+    group: "NBR 15575",
+  },
+  {
+    key: "nbr15575-5-coberturas",
+    name: "Sistemas de coberturas",
+    standard: "ABNT NBR 15575-5",
+    description: "Telhados, impermeabilização, calhas e componentes da cobertura.",
+    group: "NBR 15575",
+  },
+  {
+    key: "nbr15575-6-hidrossanitario",
+    name: "Sistemas hidrossanitários",
+    standard: "ABNT NBR 15575-6",
+    description: "Abastecimento de água, esgoto sanitário e águas pluviais.",
+    group: "NBR 15575",
+  },
+  {
+    key: "nbr5410-eletrico",
+    name: "Instalações elétricas de baixa tensão",
+    standard: "ABNT NBR 5410",
+    description: "Entrada, quadros, circuitos, tomadas, iluminação e proteção elétrica.",
+    group: "Complementares",
+  },
+  {
+    key: "nbr5419-spda",
+    name: "Proteção contra descargas atmosféricas",
+    standard: "ABNT NBR 5419",
+    description: "SPDA, aterramento e medidas de proteção contra surtos.",
+    group: "Complementares",
+  },
+  {
+    key: "nbr15526-gas",
+    name: "Instalações internas de gases combustíveis",
+    standard: "ABNT NBR 15526",
+    description: "Tubulações, válvulas, medição e pontos de consumo de gás.",
+    group: "Complementares",
+  },
+  {
+    key: "nbr16401-climatizacao",
+    name: "Climatização",
+    standard: "ABNT NBR 16401",
+    description: "Sistemas de ar-condicionado, ventilação e qualidade do ar interior.",
+    group: "Complementares",
+  },
+  {
+    key: "nbr16858-elevadores",
+    name: "Elevadores",
+    standard: "ABNT NBR 16858",
+    description: "Elevadores de passageiros e cargas, seus componentes e segurança.",
+    group: "Complementares",
+  },
+];
 
 let state = loadState();
 let editingPhoto = "";
@@ -11,25 +105,804 @@ let calendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1
 let timelineCalendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 const newChoiceValue = "__new__";
 
+function supabaseRequest(path, options = {}) {
+  const headers = {
+    apikey: supabaseConfig.publishableKey,
+    "Content-Type": "application/json",
+    ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+  };
+
+  return fetch(`${String(supabaseConfig.url || "").replace(/\/$/, "")}${path}`, {
+    method: options.method || "GET",
+    headers: { ...headers, ...(options.headers || {}) },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  }).then(async (response) => {
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!response.ok) {
+      const error = new Error(data?.msg || data?.message || data?.error_description || "Não foi possível concluir a operação.");
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  });
+}
+
+function saveSession(session) {
+  currentSession = session;
+  if (session) localStorage.setItem(authStorageKey, JSON.stringify(session));
+  else localStorage.removeItem(authStorageKey);
+}
+
+async function refreshSession(session) {
+  if (!session?.refresh_token) return null;
+  const refreshed = await supabaseRequest("/auth/v1/token?grant_type=refresh_token", {
+    method: "POST",
+    body: { refresh_token: session.refresh_token },
+  });
+  saveSession(refreshed);
+  return refreshed;
+}
+
+async function validateSession(session) {
+  if (!session?.access_token) return null;
+  try {
+    const user = await supabaseRequest("/auth/v1/user", { token: session.access_token });
+    return { session, user };
+  } catch (error) {
+    if (error.status !== 401) throw error;
+    const refreshed = await refreshSession(session);
+    if (!refreshed) return null;
+    const user = await supabaseRequest("/auth/v1/user", { token: refreshed.access_token });
+    return { session: refreshed, user };
+  }
+}
+
+function showLogin(message = "") {
+  saveSession(null);
+  setAuthMode("login");
+  document.body.classList.remove("auth-pending", "auth-ready");
+  document.body.classList.add("auth-required");
+  setAuthMessage(message);
+  document.querySelector("#login-password").value = "";
+  document.querySelector("#signup-password-confirmation").value = "";
+}
+
+function setAuthMessage(message = "", type = "error") {
+  const element = document.querySelector("#auth-message");
+  element.textContent = message;
+  element.classList.toggle("success", type === "success");
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const signup = mode === "signup";
+  document.body.classList.toggle("auth-signup", signup);
+  document.querySelector("#auth-title").textContent = signup
+    ? "Crie sua conta"
+    : "Acesse suas edificações";
+  document.querySelector(".auth-intro").textContent = signup
+    ? "Cadastre-se para criar seus próprios modelos, edificações, localizações e sistemas."
+    : "Entre para consultar modelos, localizações, sistemas e o planejamento de cada edificação.";
+  document.querySelector("#login-submit").textContent = signup ? "Criar conta" : "Entrar";
+  document.querySelector("#auth-mode-toggle").textContent = signup
+    ? "Já tenho uma conta"
+    : "Ainda não tenho conta";
+  document.querySelector("#signup-name").required = signup;
+  document.querySelector("#signup-password-confirmation").required = signup;
+  document.querySelector("#login-password").autocomplete = signup ? "new-password" : "current-password";
+  setAuthMessage();
+}
+
+function showApplication(user, session) {
+  saveSession(session);
+  currentUserId = user.id;
+  currentUserEmail = String(user.email || "").trim().toLowerCase();
+  storageKey = `${storageKeyBase}-${user.id}`;
+  state = loadState();
+  document.querySelector("#session-user-name").textContent =
+    user.user_metadata?.display_name || user.email || "Usuário";
+  document.body.classList.remove("auth-pending", "auth-required");
+  document.body.classList.add("auth-ready");
+  document.querySelector("#auth-message").textContent = "";
+  if (!appRendered) appRendered = true;
+  render();
+  loadBuildingData();
+}
+
+async function initializeAuth() {
+  if (!supabaseConfig.url || !supabaseConfig.publishableKey) {
+    showLogin("A conexão com o Supabase ainda não foi configurada.");
+    return;
+  }
+
+  let savedSession = null;
+  try {
+    savedSession = JSON.parse(localStorage.getItem(authStorageKey) || "null");
+  } catch {
+    localStorage.removeItem(authStorageKey);
+  }
+
+  if (!savedSession) {
+    showLogin();
+    return;
+  }
+
+  try {
+    const authenticated = await validateSession(savedSession);
+    if (authenticated) showApplication(authenticated.user, authenticated.session);
+    else showLogin();
+  } catch {
+    showLogin("Sua sessão expirou. Entre novamente.");
+  }
+}
+
+async function signIn(email, password) {
+  return supabaseRequest("/auth/v1/token?grant_type=password", {
+    method: "POST",
+    body: { email, password },
+  });
+}
+
+async function signUp(displayName, email, password) {
+  return supabaseRequest("/auth/v1/signup", {
+    method: "POST",
+    body: {
+      email,
+      password,
+      data: { display_name: displayName },
+    },
+  });
+}
+
+function emptyUserState() {
+  return {
+    assets: [],
+    recurrenceEvents: [],
+    ambientes: [],
+    sistemas: [],
+    rotinas: [],
+  };
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function setDataMessage(id, message = "", type = "error") {
+  const element = document.querySelector(`#${id}`);
+  element.textContent = message;
+  element.classList.toggle("success", type === "success");
+}
+
+async function loadBuildingData() {
+  if (!currentSession?.access_token) return;
+  setDataMessage("buildings-message", "Carregando edificações...", "success");
+  try {
+    const token = currentSession.access_token;
+    const [buildings, buildingTypes, locations, systems] = await Promise.all([
+      supabaseRequest("/rest/v1/buildings?select=*&order=name.asc", { token }),
+      supabaseRequest("/rest/v1/building_types?select=*&order=name.asc", { token }),
+      supabaseRequest("/rest/v1/locations?select=*&order=sort_order.asc,name.asc", { token }),
+      supabaseRequest("/rest/v1/systems?select=*&order=name.asc", { token }),
+    ]);
+    buildingData = { buildings, buildingTypes, locations, systems, loaded: true };
+    setDataMessage("buildings-message");
+    renderBuildings();
+    renderSystemsView();
+    populateBuildingTypeOptions();
+    await loadOperationalData();
+  } catch (error) {
+    console.error("Falha ao carregar dados do Supabase:", error);
+    setDataMessage("buildings-message", "Não foi possível carregar as edificações do Supabase.");
+    setDataMessage("systems-message", "Não foi possível carregar os sistemas.");
+  }
+}
+
+function mapDatabaseAsset(asset, plansByAsset) {
+  const location = buildingData.locations.find((item) => item.id === asset.location_id);
+  const system = buildingData.systems.find((item) => item.id === asset.system_id);
+  return {
+    id: asset.external_code,
+    dbId: asset.id,
+    planDbId: plansByAsset.get(asset.id)?.id || "",
+    technicalBuildingId: asset.building_id,
+    buildingId: asset.properties?.building_assignment_pending === false ? asset.building_id : "",
+    buildingAssignmentPending: asset.properties?.building_assignment_pending !== false,
+    dbProperties: asset.properties || {},
+    locationId: asset.location_id || "",
+    systemId: asset.system_id || "",
+    ambiente: location?.name || "",
+    zona: location?.properties?.zone || "",
+    sistema: system?.name || "",
+    subsistema: asset.subsystem || "",
+    ativo: asset.name,
+    componente: asset.component || "",
+    acao: asset.planned_action || plansByAsset.get(asset.id)?.name || "",
+    quantidade: Number(asset.quantity || 0),
+    unidade: asset.unit || "",
+    periodicidadeMeses: Number(asset.periodicity_months || 0),
+    ultimaManutencao: asset.last_maintenance_date || "",
+    proximaManutencao: asset.next_maintenance_date || "",
+    custoUnitario: Number(asset.estimated_unit_cost || 0),
+    custoTotal: Number(asset.estimated_total_cost || 0),
+    dataInstalacao: asset.installation_date || "",
+    expectativaVidaAnos: Number(asset.expected_life_years || 0),
+    valorAtivo: Number(asset.acquisition_value || 0),
+    fimVida: asset.end_of_life_action || "encerrar",
+    totalCiclos: Number(asset.total_cycles || 1),
+    prioridade: asset.priority || "",
+    estado: asset.condition || "",
+    status: asset.status || "",
+    responsavel: asset.responsible || "",
+    observacoes: asset.notes || "",
+    foto: asset.photo_path || "",
+  };
+}
+
+function mapDatabaseEvent(event, externalCodeByAsset) {
+  return {
+    dbId: event.id,
+    planDbId: event.plan_id || "",
+    externalEventKey: event.external_event_key,
+    assetId: externalCodeByAsset.get(event.asset_id) || "",
+    technicalBuildingId: event.building_id,
+    data: event.scheduled_date,
+    dataExecucao: event.execution_date || "",
+    sistema: event.properties?.system || "",
+    ambiente: event.properties?.environment || "",
+    ativo: event.properties?.asset_name || "",
+    acao: event.properties?.action || "",
+    custo: Number(event.estimated_cost || 0),
+    custoReal: event.actual_cost === null ? null : Number(event.actual_cost),
+    status: event.status || "programado",
+    prioridade: event.properties?.priority || "",
+    tipo: event.event_type === "substituicao" ? "Substitui\u00e7\u00e3o" : "Manuten\u00e7\u00e3o",
+    ciclo: Number(event.cycle_number || 1),
+    provisionStart: event.provision_start_date || "",
+    realizada: event.completed === null ? undefined : event.completed,
+  };
+}
+
+async function loadOperationalData() {
+  if (!currentSession?.access_token || !buildingData.buildings.length) {
+    state = { ...emptyUserState(), settings: state.settings };
+    render();
+    return;
+  }
+
+  const token = currentSession.access_token;
+  const [assetTypes, templates, assets, plans, events] = await Promise.all([
+    supabaseRequest("/rest/v1/asset_types?select=*&order=name.asc", { token }),
+    supabaseRequest("/rest/v1/maintenance_templates?select=*&order=name.asc", { token }),
+    supabaseRequest("/rest/v1/assets?select=*&order=name.asc", { token }),
+    supabaseRequest("/rest/v1/maintenance_plans?select=*", { token }),
+    supabaseRequest("/rest/v1/maintenance_events?select=*&order=scheduled_date.asc", { token }),
+  ]);
+  const plansByAsset = new Map(plans.map((plan) => [plan.asset_id, plan]));
+  const externalCodeByAsset = new Map(assets.map((asset) => [asset.id, asset.external_code]));
+  const buildingLocations = buildingData.locations;
+  const buildingSystems = buildingData.systems;
+
+  state.assets = assets.map((asset) => mapDatabaseAsset(asset, plansByAsset));
+  const uiAssetByCode = new Map(state.assets.map((asset) => [asset.id, asset]));
+  state.recurrenceEvents = events
+    .map((event) => mapDatabaseEvent(event, externalCodeByAsset))
+    .filter((event) => event.assetId)
+    .map((event) => {
+      const asset = uiAssetByCode.get(event.assetId);
+      return {
+        ...event,
+        buildingId: asset?.buildingId || "",
+        buildingAssignmentPending: asset?.buildingAssignmentPending !== false,
+        ativo: event.ativo || asset?.ativo || "",
+        sistema: event.sistema || asset?.sistema || "",
+        ambiente: event.ambiente || asset?.ambiente || "",
+        acao: event.acao || asset?.acao || "",
+      };
+    });
+  state.ambientes = buildingLocations
+    .filter((location) => location.location_type === "ambiente")
+    .map((location) => ({
+      codigo: location.properties?.code || "",
+      ambiente: location.name,
+      zona: location.properties?.zone || "",
+    }));
+  state.sistemas = buildingSystems.flatMap((system) => {
+    const subsystems = system.properties?.subsystems || [""];
+    return subsystems.length
+      ? subsystems.map((subsystem) => ({
+          codigo: system.properties?.codes?.[0] || "",
+          sistema: system.name,
+          subsistema: subsystem,
+        }))
+      : [{ codigo: "", sistema: system.name, subsistema: "" }];
+  });
+  state.rotinas = templates.map((template) => ({
+    sistema: template.system_name || "",
+    ativo: assetTypes.find((type) => type.id === template.asset_type_id)?.name || "",
+    componente: template.component || "",
+    acao: template.name,
+    periodicidadeMeses: Number(template.periodicity_months || 0),
+    custoReferencia: Number(template.reference_cost || 0),
+    responsavel: template.responsible || "",
+  }));
+  initializeReportBuildingSelections();
+  renderReportBuildingFilters();
+  saveState();
+  render();
+}
+
+function buildingName(buildingId) {
+  return buildingData.buildings.find((building) => building.id === buildingId)?.name || "Edificação não encontrada";
+}
+
+function buildingHorizonYears(buildingId) {
+  const building = buildingData.buildings.find((item) => item.id === buildingId);
+  return Math.max(1, Number(building?.properties?.planning_horizon_years || 50));
+}
+
+function buildingAssignedAssets(buildingId) {
+  return state.assets.filter(
+    (asset) => !asset.buildingAssignmentPending && asset.buildingId === buildingId,
+  );
+}
+
+function buildingTimeStart(buildingId) {
+  const installationDates = buildingAssignedAssets(buildingId)
+    .map((asset) => safeDate(asset.dataInstalacao))
+    .filter(Boolean)
+    .sort((a, b) => a - b);
+  const building = buildingData.buildings.find((item) => item.id === buildingId);
+  return installationDates[0] ||
+    safeDate(building?.properties?.supervision_start) ||
+    new Date();
+}
+
+function buildingSupervisionStart(buildingId) {
+  const building = buildingData.buildings.find((item) => item.id === buildingId);
+  return safeDate(building?.properties?.supervision_start) || buildingTimeStart(buildingId);
+}
+
+function buildingTimeEnd(buildingId) {
+  return addYears(buildingTimeStart(buildingId), buildingHorizonYears(buildingId));
+}
+
+function selectedReportBuildingIds(report) {
+  return buildingData.buildings
+    .map((building) => building.id)
+    .filter((buildingId) => reportBuildingSelections[report]?.has(buildingId));
+}
+
+function reportTimeBounds(report) {
+  const buildingIds = selectedReportBuildingIds(report);
+  if (!buildingIds.length) {
+    const eventDates = reportEvents(report).map((event) => safeDate(event.data)).filter(Boolean).sort((a, b) => a - b);
+    const start = eventDates[0] || new Date();
+    const end = eventDates[eventDates.length - 1] || addYears(start, 50);
+    return { start, end, supervisionStart: start };
+  }
+
+  const starts = buildingIds.map(buildingTimeStart).sort((a, b) => a - b);
+  const ends = buildingIds.map(buildingTimeEnd).sort((a, b) => a - b);
+  const supervisionStarts = buildingIds.map(buildingSupervisionStart).sort((a, b) => a - b);
+  return {
+    start: starts[0],
+    end: ends[ends.length - 1],
+    supervisionStart: supervisionStarts[0],
+  };
+}
+
+function reportHorizonDescription(report) {
+  const buildingIds = selectedReportBuildingIds(report);
+  if (!buildingIds.length) return "Nenhuma edificação selecionada";
+  return buildingIds.map((buildingId) =>
+    `${buildingName(buildingId)}: ${buildingHorizonYears(buildingId)} anos`
+  ).join(" · ");
+}
+
+function initializeReportBuildingSelections() {
+  const available = [...buildingData.buildings.map((building) => building.id), pendingBuildingKey];
+  Object.values(reportBuildingSelections).forEach((selection) => {
+    if (!selection.size) available.forEach((key) => selection.add(key));
+    [...selection].forEach((key) => {
+      if (!available.includes(key)) selection.delete(key);
+    });
+  });
+}
+
+function reportIncludesAsset(asset, report) {
+  const key = asset.buildingAssignmentPending ? pendingBuildingKey : asset.buildingId;
+  return reportBuildingSelections[report]?.has(key);
+}
+
+function reportAssets(report) {
+  return state.assets.filter((asset) => reportIncludesAsset(asset, report));
+}
+
+function reportEvents(report) {
+  const allowedAssetIds = new Set(reportAssets(report).map((asset) => asset.id));
+  return state.recurrenceEvents.filter((event) => {
+    if (!allowedAssetIds.has(event.assetId)) return false;
+    const asset = state.assets.find((item) => item.id === event.assetId);
+    const date = safeDate(event.data);
+    if (!asset?.buildingId || !date) return true;
+    return date >= buildingTimeStart(asset.buildingId) && date <= buildingTimeEnd(asset.buildingId);
+  });
+}
+
+function renderReportBuildingFilters() {
+  ["assets", "dashboard", "timeline", "finance"].forEach((report) => {
+    const container = document.querySelector(`#${report}-building-filter`);
+    if (!container) return;
+    const options = [
+      ...buildingData.buildings.map((building) => ({ key: building.id, label: building.name })),
+      { key: pendingBuildingKey, label: "Pendentes" },
+    ];
+    container.innerHTML = options.map((option) => `<label class="building-check">
+      <input type="checkbox" value="${option.key}" ${reportBuildingSelections[report].has(option.key) ? "checked" : ""} />
+      ${escapeHtml(option.label)}
+    </label>`).join("");
+    const selectedLabels = options.filter((option) => reportBuildingSelections[report].has(option.key)).map((option) => option.label);
+    document.querySelector(`#${report}-building-summary`).textContent =
+      selectedLabels.length === options.length ? "Todas" : selectedLabels.join(", ") || "Nenhuma selecionada";
+  });
+}
+
+function buildingTypeName(typeId) {
+  return buildingData.buildingTypes.find((type) => type.id === typeId)?.name || "Tipo não informado";
+}
+
+function locationTypeLabel(type) {
+  return {
+    bloco: "Bloco",
+    pavimento: "Pavimento",
+    unidade: "Unidade",
+    ambiente: "Ambiente",
+    area_comum: "Área comum",
+    area_tecnica: "Área técnica",
+    area_externa: "Área externa",
+  }[type] || type || "Localização";
+}
+
+function locationTreeHtml(buildingId, parentId = null) {
+  const children = buildingData.locations
+    .filter((location) => location.building_id === buildingId && location.parent_id === parentId)
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || a.name.localeCompare(b.name, "pt-BR"));
+  if (!children.length) return "";
+  return `<ul class="location-tree">${children.map((location) => `<li class="location-node">
+    <div class="location-item">
+      <strong>${escapeHtml(location.name)}</strong>
+      <span class="location-type">${escapeHtml(locationTypeLabel(location.location_type))}</span>
+      <button class="location-edit-button edit-location" data-location-id="${location.id}" type="button">Editar</button>
+    </div>
+    ${locationTreeHtml(buildingId, location.id)}
+  </li>`).join("")}</ul>`;
+}
+
+function renderBuildings() {
+  const container = document.querySelector("#buildings-list");
+  if (!buildingData.loaded) {
+    container.innerHTML = `<div class="empty-state">Carregando...</div>`;
+    return;
+  }
+  if (!buildingData.buildings.length) {
+    container.innerHTML = `<div class="empty-state empty-state-large">
+      <strong>Nenhuma edificação cadastrada</strong>
+      <span>Crie a primeira edificação e depois monte sua árvore de localizações.</span>
+    </div>`;
+    return;
+  }
+  container.innerHTML = buildingData.buildings.map((building) => {
+    const locations = buildingData.locations.filter((location) => location.building_id === building.id);
+    const systems = buildingData.systems.filter((system) => system.building_id === building.id);
+    const timeStart = buildingTimeStart(building.id);
+    const timeEnd = buildingTimeEnd(building.id);
+    const supervisionStart = buildingSupervisionStart(building.id);
+    return `<details class="building-card" data-building-id="${building.id}" ${openBuildingIds.has(building.id) ? "open" : ""}>
+      <summary class="building-summary">
+        <button class="building-toggle" data-building-id="${building.id}" type="button" aria-label="${openBuildingIds.has(building.id) ? "Fechar" : "Abrir"} árvore">${openBuildingIds.has(building.id) ? "−" : "+"}</button>
+        <div class="building-title" data-building-id="${building.id}" role="button" tabindex="0">
+          <h3>${escapeHtml(building.name)}</h3>
+          <p>${escapeHtml(buildingTypeName(building.building_type_id))}</p>
+          ${building.properties?.address ? `<p class="building-address">${escapeHtml(building.properties.address)}</p>` : ""}
+          <p class="building-time-summary">Tempo: ${formatDate(timeStart)} a ${formatDate(timeEnd)} · Supervisão: ${formatDate(supervisionStart)} · ${buildingHorizonYears(building.id)} anos</p>
+        </div>
+        <span class="building-code">${escapeHtml(building.reference_code)}</span>
+        <span>${locations.length} localizações · ${systems.length} sistemas</span>
+        <button class="ghost-button edit-building" data-building-id="${building.id}" type="button">Editar</button>
+      </summary>
+      <div class="building-body">
+        <div class="building-body-header">
+          <div><strong>Localizações e ambientes</strong></div>
+          <button class="ghost-button add-location" data-building-id="${building.id}" type="button">Adicionar localização</button>
+        </div>
+        ${locationTreeHtml(building.id) || `<div class="empty-state">A árvore ainda está vazia.</div>`}
+      </div>
+    </details>`;
+  }).join("");
+}
+
+function populateBuildingTypeOptions() {
+  const select = document.querySelector("#building-type");
+  select.innerHTML = buildingData.buildingTypes
+    .map((type) => `<option value="${type.id}">${escapeHtml(type.name)}</option>`)
+    .join("");
+}
+
+function populateLocationParentOptions(buildingId) {
+  populateLocationParentOptionsForEdit(buildingId);
+}
+
+function locationDescendantIds(locationId) {
+  const descendants = new Set();
+  const visit = (parentId) => {
+    buildingData.locations
+      .filter((location) => location.parent_id === parentId)
+      .forEach((location) => {
+        descendants.add(location.id);
+        visit(location.id);
+      });
+  };
+  visit(locationId);
+  return descendants;
+}
+
+function populateLocationParentOptionsForEdit(buildingId, locationId = "", selectedParentId = "") {
+  const select = document.querySelector("#location-parent");
+  const excludedIds = locationId ? locationDescendantIds(locationId) : new Set();
+  if (locationId) excludedIds.add(locationId);
+  const locations = buildingData.locations.filter(
+    (location) => location.building_id === buildingId && !excludedIds.has(location.id),
+  );
+  select.innerHTML = `<option value="">Na raiz da edificação</option>${locations
+    .map((location) => `<option value="${location.id}">${escapeHtml(location.name)} · ${escapeHtml(locationTypeLabel(location.location_type))}</option>`)
+    .join("")}`;
+  select.value = selectedParentId || "";
+}
+
+function selectedSystemsBuildingId() {
+  return document.querySelector("#systems-building-filter").value;
+}
+
+function renderSystemsView() {
+  const filter = document.querySelector("#systems-building-filter");
+  const previous = filter.value;
+  filter.innerHTML = buildingData.buildings.length
+    ? buildingData.buildings.map((building) => `<option value="${building.id}">${escapeHtml(building.name)}</option>`).join("")
+    : `<option value="">Nenhuma edificação</option>`;
+  filter.value = buildingData.buildings.some((building) => building.id === previous)
+    ? previous
+    : buildingData.buildings[0]?.id || "";
+
+  const buildingId = selectedSystemsBuildingId();
+  const registered = buildingData.systems.filter((system) => system.building_id === buildingId);
+  const registeredKeys = new Set(registered.map((system) => system.properties?.catalog_key).filter(Boolean));
+  document.querySelector("#standards-catalog").innerHTML = normativeSystems.map((system) => {
+    const added = registeredKeys.has(system.key);
+    return `<article class="standard-card ${added ? "is-added" : ""}">
+      <div>
+        <span class="standard-reference">${escapeHtml(system.standard)} · ${escapeHtml(system.group)}</span>
+        <h3>${escapeHtml(system.name)}</h3>
+        <p>${escapeHtml(system.description)}</p>
+      </div>
+      <button class="${added ? "ghost-button" : "primary-button"} add-standard-system" data-system-key="${system.key}" type="button" ${added || !buildingId ? "disabled" : ""}>${added ? "Adicionado" : "Adicionar"}</button>
+    </article>`;
+  }).join("");
+
+  document.querySelector("#building-systems-list").innerHTML = registered.length
+    ? registered.map((system) => `<article class="registered-system">
+      <div>
+        <span class="standard-reference">${escapeHtml(system.properties?.standard || "Sistema personalizado")}</span>
+        <h3>${escapeHtml(system.name)}</h3>
+        <p>${escapeHtml(system.description || "Sem descrição.")}</p>
+      </div>
+      <button class="danger-button delete-building-system" data-system-id="${system.id}" type="button">Excluir</button>
+    </article>`).join("")
+    : `<div class="empty-state">Nenhum sistema cadastrado nesta edificação.</div>`;
+}
+
+async function saveBuildingRecord() {
+  const buildingId = document.querySelector("#building-id").value;
+  const name = document.querySelector("#building-name").value.trim();
+  const referenceCode = document.querySelector("#building-code").value.trim();
+  const buildingTypeId = document.querySelector("#building-type").value;
+  const address = document.querySelector("#building-address").value.trim();
+  const supervisionStart = document.querySelector("#building-supervision-start").value;
+  const planningHorizonYears = Math.max(1, Number(document.querySelector("#building-planning-horizon").value || 50));
+  if (!name || !referenceCode || !buildingTypeId) return;
+  try {
+    await supabaseRequest(buildingId
+      ? `/rest/v1/buildings?id=eq.${encodeURIComponent(buildingId)}`
+      : "/rest/v1/buildings", {
+      method: buildingId ? "PATCH" : "POST",
+      token: currentSession.access_token,
+      headers: { Prefer: "return=representation" },
+      body: {
+        ...(buildingId ? {} : { owner_id: currentUserId }),
+        building_type_id: buildingTypeId,
+        name,
+        reference_code: referenceCode,
+        properties: {
+          ...(buildingData.buildings.find((building) => building.id === buildingId)?.properties || {}),
+          address,
+          supervision_start: supervisionStart || null,
+          planning_horizon_years: planningHorizonYears,
+        },
+      },
+    });
+    document.querySelector("#building-dialog").close();
+    document.querySelector("#building-form").reset();
+    if (buildingId) openBuildingIds.add(buildingId);
+    setDataMessage("buildings-message", buildingId ? "Edificação atualizada." : "Edificação criada.", "success");
+    await loadBuildingData();
+  } catch (error) {
+    setDataMessage("buildings-message", error.status === 409 ? "Esta identificação já está em uso." : "Não foi possível salvar a edificação.");
+  }
+}
+
+async function saveLocationRecord() {
+  const locationId = document.querySelector("#location-id").value;
+  const buildingId = document.querySelector("#location-building-id").value;
+  const name = document.querySelector("#location-name").value.trim();
+  if (!buildingId || !name) return;
+  try {
+    const siblings = buildingData.locations.filter((location) =>
+      location.building_id === buildingId &&
+      (location.parent_id || "") === document.querySelector("#location-parent").value
+    );
+    await supabaseRequest(locationId
+      ? `/rest/v1/locations?id=eq.${encodeURIComponent(locationId)}`
+      : "/rest/v1/locations", {
+      method: locationId ? "PATCH" : "POST",
+      token: currentSession.access_token,
+      headers: { Prefer: "return=representation" },
+      body: {
+        ...(locationId ? {} : { building_id: buildingId }),
+        parent_id: document.querySelector("#location-parent").value || null,
+        name,
+        location_type: document.querySelector("#location-type").value,
+        ...(locationId ? {} : { sort_order: (siblings.length + 1) * 10 }),
+      },
+    });
+    openBuildingIds.add(buildingId);
+    document.querySelector("#location-dialog").close();
+    document.querySelector("#location-form").reset();
+    setDataMessage("buildings-message", locationId ? "Localização atualizada." : "Localização adicionada.", "success");
+    await loadBuildingData();
+  } catch {
+    setDataMessage("buildings-message", "Não foi possível salvar a localização. Verifique se já existe outra com o mesmo nome nesse nível.");
+  }
+}
+
+function openBuildingDialog(building = null) {
+  document.querySelector("#building-form").reset();
+  document.querySelector("#building-id").value = building?.id || "";
+  document.querySelector("#building-dialog-eyebrow").textContent = building ? "Editar estrutura" : "Nova estrutura";
+  document.querySelector("#building-dialog-title").textContent = building ? "Editar edificação" : "Criar edificação";
+  document.querySelector("#save-building").textContent = building ? "Salvar alterações" : "Criar edificação";
+  populateBuildingTypeOptions();
+  document.querySelector("#building-name").value = building?.name || "";
+  document.querySelector("#building-code").value = building?.reference_code || "";
+  document.querySelector("#building-address").value = building?.properties?.address || "";
+  document.querySelector("#building-supervision-start").value = dateInputValue(building?.properties?.supervision_start || "");
+  document.querySelector("#building-planning-horizon").value = buildingHorizonYears(building?.id);
+  if (building?.building_type_id) document.querySelector("#building-type").value = building.building_type_id;
+  document.querySelector("#building-dialog").showModal();
+}
+
+function openLocationDialog(buildingId, location = null) {
+  document.querySelector("#location-form").reset();
+  document.querySelector("#location-id").value = location?.id || "";
+  document.querySelector("#location-building-id").value = buildingId;
+  document.querySelector("#location-dialog-title").textContent = location ? "Editar localização" : "Nova localização";
+  document.querySelector("#save-location").textContent = location ? "Salvar alterações" : "Adicionar";
+  document.querySelector("#location-name").value = location?.name || "";
+  document.querySelector("#location-type").value = location?.location_type || "ambiente";
+  populateLocationParentOptionsForEdit(buildingId, location?.id || "", location?.parent_id || "");
+  openBuildingIds.add(buildingId);
+  document.querySelector("#location-dialog").showModal();
+}
+
+function toggleBuilding(buildingId) {
+  if (openBuildingIds.has(buildingId)) openBuildingIds.delete(buildingId);
+  else openBuildingIds.add(buildingId);
+  renderBuildings();
+}
+
+async function createNormativeSystem(systemKey) {
+  const buildingId = selectedSystemsBuildingId();
+  const catalogSystem = normativeSystems.find((system) => system.key === systemKey);
+  if (!buildingId || !catalogSystem) return;
+  try {
+    await supabaseRequest("/rest/v1/systems", {
+      method: "POST",
+      token: currentSession.access_token,
+      headers: { Prefer: "return=representation" },
+      body: {
+        building_id: buildingId,
+        name: catalogSystem.name,
+        description: catalogSystem.description,
+        properties: {
+          catalog_key: catalogSystem.key,
+          standard: catalogSystem.standard,
+          standard_group: catalogSystem.group,
+        },
+      },
+    });
+    setDataMessage("systems-message", "Sistema adicionado.", "success");
+    await loadBuildingData();
+  } catch {
+    setDataMessage("systems-message", "Não foi possível adicionar o sistema. Ele pode já estar cadastrado.");
+  }
+}
+
+async function createCustomSystem() {
+  const buildingId = selectedSystemsBuildingId();
+  const name = document.querySelector("#custom-system-name").value.trim();
+  if (!buildingId || !name) return;
+  try {
+    await supabaseRequest("/rest/v1/systems", {
+      method: "POST",
+      token: currentSession.access_token,
+      headers: { Prefer: "return=representation" },
+      body: {
+        building_id: buildingId,
+        name,
+        description: document.querySelector("#custom-system-description").value.trim(),
+        properties: {
+          standard: document.querySelector("#custom-system-standard").value.trim(),
+          custom: true,
+        },
+      },
+    });
+    document.querySelector("#system-dialog").close();
+    document.querySelector("#system-form").reset();
+    setDataMessage("systems-message", "Sistema personalizado adicionado.", "success");
+    await loadBuildingData();
+  } catch {
+    setDataMessage("systems-message", "Não foi possível adicionar o sistema.");
+  }
+}
+
+async function deleteBuildingSystem(systemId) {
+  if (!window.confirm("Excluir este sistema da edificação?")) return;
+  try {
+    await supabaseRequest(`/rest/v1/systems?id=eq.${encodeURIComponent(systemId)}`, {
+      method: "DELETE",
+      token: currentSession.access_token,
+    });
+    setDataMessage("systems-message", "Sistema excluído.", "success");
+    await loadBuildingData();
+  } catch {
+    setDataMessage("systems-message", "Não foi possível excluir o sistema.");
+  }
+}
+
 function loadState() {
   const saved = localStorage.getItem(storageKey);
-  const data = saved ? JSON.parse(saved) : {
-    assets: seed.assets,
-    recurrenceEvents: seed.recurrenceEvents,
-    ambientes: seed.ambientes,
-    sistemas: seed.sistemas,
-    rotinas: seed.rotinas,
-  };
-  const savedHorizon = Number(data.settings?.planningHorizonYears || 0);
+  let localData = {};
+  try {
+    localData = saved ? JSON.parse(saved) : {};
+  } catch {
+    localData = {};
+  }
+  const data = emptyUserState();
+  const savedHorizon = Number(localData.settings?.planningHorizonYears || 0);
   data.settings = {
-    ...(data.settings || {}),
+    ...(localData.settings || {}),
     planningHorizonYears: !savedHorizon || savedHorizon === 20 ? 50 : savedHorizon,
   };
   return data;
 }
 
 function saveState() {
-  localStorage.setItem(storageKey, JSON.stringify(state));
+  localStorage.setItem(storageKey, JSON.stringify({ settings: state.settings }));
 }
 
 function byDate(a, b) {
@@ -118,18 +991,20 @@ function getLifeEndMode() {
   return document.querySelector('input[name="asset-fim-vida"]:checked')?.value || "renovar";
 }
 
-function planningHorizonYears() {
-  return Math.max(1, Number(state.settings?.planningHorizonYears || 50));
+function planningHorizonYears(buildingId = "") {
+  if (buildingId) return buildingHorizonYears(buildingId);
+  const selected = selectedReportBuildingIds("timeline");
+  return selected.length ? Math.max(...selected.map(buildingHorizonYears)) : 50;
 }
 
-function maxCyclesForLife(lifeYears) {
+function maxCyclesForLife(lifeYears, buildingId = "") {
   const life = Number(lifeYears || 0);
-  return life > 0 ? Math.max(1, Math.floor(planningHorizonYears() / life)) : null;
+  return life > 0 ? Math.max(1, Math.floor(planningHorizonYears(buildingId) / life)) : null;
 }
 
-function clampCycles(totalCycles, lifeYears) {
+function clampCycles(totalCycles, lifeYears, buildingId = "") {
   const requested = Math.max(1, Number(totalCycles || 1));
-  const maximum = maxCyclesForLife(lifeYears);
+  const maximum = maxCyclesForLife(lifeYears, buildingId);
   return maximum ? Math.min(requested, maximum) : requested;
 }
 
@@ -141,23 +1016,24 @@ function groupSum(items, key, valueKey) {
   }, {});
 }
 
-function planningWindowEvents() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = addYears(start, planningHorizonYears());
-  return state.recurrenceEvents.filter((event) => {
+function planningWindowEvents(report = "dashboard") {
+  return reportEvents(report).filter((event) => {
     const date = safeDate(event.data);
-    return date && date >= start && date <= end;
+    const asset = state.assets.find((item) => item.id === event.assetId);
+    if (!date || !asset?.buildingId) return false;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return date >= start && date <= buildingTimeEnd(asset.buildingId);
   });
 }
 
 function plannedExecutionCost() {
-  return planningWindowEvents().reduce((sum, event) => sum + Number(event.custo || 0), 0);
+  return planningWindowEvents("dashboard").reduce((sum, event) => sum + Number(event.custo || 0), 0);
 }
 
 function selectedMonthlyProvision() {
   const selectedMonth = new Date(calendarCursor.getFullYear(), calendarCursor.getMonth(), 1);
-  const { provision } = financeSeries();
+  const { provision } = financeSeries("dashboard");
   const value = Number(provision[monthKey(selectedMonth)] || 0);
   const provisionKeys = Object.keys(provision).sort();
   const lastProvisionKey = provisionKeys[provisionKeys.length - 1];
@@ -181,8 +1057,8 @@ function selectedMonthlyProvision() {
   return { value, changeDate, nextValue };
 }
 
-function eventsByYear() {
-  return state.recurrenceEvents.reduce((acc, event) => {
+function eventsByYear(report = "timeline") {
+  return reportEvents(report).reduce((acc, event) => {
     const year = event.data?.slice(0, 4);
     if (!year) return acc;
     acc[year] = (acc[year] || 0) + Number(event.custo || 0);
@@ -209,7 +1085,7 @@ function monthDistance(start, end) {
   return (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
 }
 
-function financeSeries() {
+function financeSeries(report = "dashboard") {
   const start = new Date();
   start.setDate(1);
   start.setHours(0, 0, 0, 0);
@@ -217,7 +1093,7 @@ function financeSeries() {
   const provision = {};
   const executionEvents = {};
 
-  state.recurrenceEvents.forEach((event) => {
+  reportEvents(report).forEach((event) => {
     const executionDate = safeDate(event.data);
     const cost = Number(event.custo || 0);
     if (!executionDate || !cost) return;
@@ -274,7 +1150,7 @@ function compactMoney(value) {
 }
 
 function renderDashboardChart() {
-  const { execution, provision } = financeSeries();
+  const { execution, provision } = financeSeries("dashboard");
   const months = Array.from({ length: 12 }, (_, index) => {
     const date = addMonths(calendarCursor, index - 1);
     const key = monthKey(date);
@@ -386,17 +1262,18 @@ function calendarMonthIndex(date) {
   return date.getFullYear() * 12 + date.getMonth();
 }
 
-function calendarBounds() {
-  const dates = state.recurrenceEvents.map((event) => safeDate(event.data)).filter(Boolean).sort((a, b) => a - b);
-  if (!dates.length) {
-    const current = new Date();
-    const month = new Date(current.getFullYear(), current.getMonth(), 1);
-    return { min: month, max: month, minIndex: calendarMonthIndex(month), maxIndex: calendarMonthIndex(month) };
-  }
-  const min = new Date(dates[0].getFullYear(), dates[0].getMonth(), 1);
-  const last = dates[dates.length - 1];
-  const max = new Date(last.getFullYear(), last.getMonth(), 1);
-  return { min, max, minIndex: calendarMonthIndex(min), maxIndex: calendarMonthIndex(max) };
+function calendarBounds(report = "dashboard") {
+  const timeline = reportTimeBounds(report);
+  const min = new Date(timeline.start.getFullYear(), timeline.start.getMonth(), 1);
+  const max = new Date(timeline.end.getFullYear(), timeline.end.getMonth(), 1);
+  const supervision = new Date(timeline.supervisionStart.getFullYear(), timeline.supervisionStart.getMonth(), 1);
+  return {
+    min,
+    max,
+    supervision,
+    minIndex: calendarMonthIndex(min),
+    maxIndex: calendarMonthIndex(max),
+  };
 }
 
 function clampCalendarCursor() {
@@ -421,8 +1298,11 @@ function updateCalendarSlider(bounds) {
   document.querySelector("#calendar-today-date").textContent = calendarSliderLabel(new Date());
   const today = new Date();
   const todayIndex = Math.max(bounds.minIndex, Math.min(bounds.maxIndex, calendarMonthIndex(today)));
+  const supervisionIndex = Math.max(bounds.minIndex, Math.min(bounds.maxIndex, calendarMonthIndex(bounds.supervision)));
+  const realStart = Number(slider.max) ? ((supervisionIndex - bounds.minIndex) / Number(slider.max)) * 100 : 0;
   const realProgress = Number(slider.max) ? ((todayIndex - bounds.minIndex) / Number(slider.max)) * 100 : 0;
-  slider.style.setProperty("--real-progress", `${realProgress}%`);
+  slider.style.setProperty("--real-start", `${realStart}%`);
+  slider.style.setProperty("--real-progress", `${Math.max(realStart, realProgress)}%`);
 }
 
 function calendarFlowTarget(kind) {
@@ -435,7 +1315,7 @@ function calendarFlowTarget(kind) {
   const reference = selectedDate || monthStart;
   const todayKey = calendarDateKey(new Date());
 
-  return state.recurrenceEvents
+  return reportEvents("dashboard")
     .filter((event) => {
       const date = safeDate(event.data);
       if (!date) return false;
@@ -461,7 +1341,7 @@ function navigateCalendarFlow(kind) {
   renderKpis();
   const dateKey = calendarDateKey(date);
   const day = document.querySelector(`.calendar-month.current .calendar-day[data-date="${dateKey}"]`);
-  const events = state.recurrenceEvents.filter((event) => dateInputValue(event.data) === dateKey);
+  const events = reportEvents("dashboard").filter((event) => dateInputValue(event.data) === dateKey);
   if (day && events.length) {
     showCalendarDay(day, events);
     renderCalendarFlowSummary(calendarDateKey(new Date()));
@@ -476,7 +1356,7 @@ function renderCalendarFlowSummary(todayKey) {
     replacement: { passed: 0, future: 0 },
   };
 
-  state.recurrenceEvents.forEach((event) => {
+  reportEvents("dashboard").forEach((event) => {
     const date = safeDate(event.data);
     if (!date) return;
     const category = calendarEventCategory(event, calendarDateKey(date), todayKey);
@@ -516,7 +1396,7 @@ function renderCalendarFlowSummary(todayKey) {
 function renderCalendar() {
   const bounds = clampCalendarCursor();
   updateCalendarSlider(bounds);
-  const eventsByDate = state.recurrenceEvents.reduce((groups, event) => {
+  const eventsByDate = reportEvents("dashboard").reduce((groups, event) => {
     const date = safeDate(event.data);
     if (!date) return groups;
     const key = calendarDateKey(date);
@@ -590,7 +1470,7 @@ function renderTimelineCalendar() {
   const container = document.querySelector("#timeline-calendar-months");
   const timelineView = document.querySelector("#timeline-view");
   if (!container || !timelineView?.classList.contains("active")) return;
-  const bounds = calendarBounds();
+  const bounds = calendarBounds("timeline");
   const cursorIndex = Math.max(bounds.minIndex, Math.min(bounds.maxIndex, calendarMonthIndex(timelineCalendarCursor)));
   timelineCalendarCursor = new Date(Math.floor(cursorIndex / 12), cursorIndex % 12, 1);
   const availableWidth = Math.max(320, container.getBoundingClientRect().width || timelineView.getBoundingClientRect().width);
@@ -602,7 +1482,7 @@ function renderTimelineCalendar() {
   const visibleIndexes = Array.from({ length: monthCount }, (_, index) => startIndex + index).filter(
     (index) => index >= bounds.minIndex && index <= bounds.maxIndex,
   );
-  const eventsByDate = state.recurrenceEvents.reduce((groups, event) => {
+  const eventsByDate = reportEvents("timeline").reduce((groups, event) => {
     const date = safeDate(event.data);
     if (!date) return groups;
     const key = calendarDateKey(date);
@@ -625,8 +1505,11 @@ function renderTimelineCalendar() {
   range.max = Math.max(0, bounds.maxIndex - bounds.minIndex);
   range.value = cursorIndex - bounds.minIndex;
   const todayIndex = Math.max(bounds.minIndex, Math.min(bounds.maxIndex, calendarMonthIndex(new Date())));
+  const supervisionIndex = Math.max(bounds.minIndex, Math.min(bounds.maxIndex, calendarMonthIndex(bounds.supervision)));
+  const realStart = Number(range.max) ? ((supervisionIndex - bounds.minIndex) / Number(range.max)) * 100 : 0;
   const realProgress = Number(range.max) ? ((todayIndex - bounds.minIndex) / Number(range.max)) * 100 : 0;
-  range.style.setProperty("--real-progress", `${realProgress}%`);
+  range.style.setProperty("--real-start", `${realStart}%`);
+  range.style.setProperty("--real-progress", `${Math.max(realStart, realProgress)}%`);
 
   document.querySelector("#timeline-calendar-prev").disabled = cursorIndex <= bounds.minIndex;
   document.querySelector("#timeline-calendar-next").disabled = cursorIndex >= bounds.maxIndex;
@@ -722,12 +1605,14 @@ function showCalendarDay(day, events) {
 }
 
 function renderKpis() {
-  const vencidos = state.assets.filter((asset) => statusFor(asset.proximaManutencao) === "Vencido").length;
+  const dashboardAssets = reportAssets("dashboard");
+  const dashboardEvents = reportEvents("dashboard");
+  const vencidos = dashboardAssets.filter((asset) => statusFor(asset.proximaManutencao) === "Vencido").length;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const in90Days = new Date(today);
   in90Days.setDate(in90Days.getDate() + 90);
-  const next90 = state.recurrenceEvents.filter((event) => {
+  const next90 = dashboardEvents.filter((event) => {
     const date = safeDate(event.data);
     return date && date >= today && date <= in90Days;
   }).length;
@@ -739,9 +1624,9 @@ function renderKpis() {
     ? `Valor vigente até: ${formatDate(selectedProvision.changeDate)} · Próximo valor: ${money.format(selectedProvision.nextValue)}`
     : "Sem alteração posterior no período";
   const kpis = [
-    [`Custo previsto em ${planningHorizonYears()} anos`, money.format(plannedExecutionCost())],
+    ["Custo previsto no horizonte", money.format(plannedExecutionCost()), reportHorizonDescription("dashboard")],
     [`Provisionamento mensal · ${selectedMonthLabel}`, money.format(selectedProvision.value), provisionValidity],
-    ["Ativos cadastrados", state.assets.length],
+    ["Ativos cadastrados", dashboardAssets.length],
     ["Próximos 90 dias", next90],
     ["Itens vencidos", vencidos],
   ];
@@ -752,16 +1637,16 @@ function renderKpis() {
 }
 
 function renderSystemBars() {
-  const windowEvents = planningWindowEvents();
+  const windowEvents = planningWindowEvents("dashboard");
   const grouped = groupSum(windowEvents, "sistema", "custo");
   const rows = Object.entries(grouped).sort((a, b) => b[1] - a[1]);
   const max = Math.max(...rows.map((row) => row[1]), 1);
-  document.querySelector("#system-bars").innerHTML = rows
+  document.querySelector("#system-bars").innerHTML = rows.length ? rows
     .map(([label, value]) => {
       const width = Math.max(3, (value / max) * 100);
       return `<div class="bar-row system-bar-row" data-system="${encodeURIComponent(label)}" role="button" tabindex="0" aria-label="Ver ativos do sistema ${label}"><strong>${label}</strong><div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div><span>${money.format(value)}</span></div>`;
     })
-    .join("");
+    .join("") : `<div class="empty-state">Nenhum sistema com custos programados.</div>`;
   wireSystemDetails(windowEvents);
 }
 
@@ -819,7 +1704,7 @@ function showSystemDetail(row, system, events) {
   const banner = document.createElement("aside");
   banner.className = "execution-detail system-detail inline";
   banner.innerHTML = `<h3>${system}</h3>
-    <div class="detail-total">Total no horizonte de ${planningHorizonYears()} anos: ${money.format(total)}</div>
+    <div class="detail-total">Total no horizonte selecionado: ${money.format(total)}</div>
     <ul>${items
       .map(
         (item) => `<li>
@@ -844,7 +1729,7 @@ function showSystemDetail(row, system, events) {
 function renderNextEvents() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const events = state.recurrenceEvents
+  const events = reportEvents("dashboard")
     .filter((event) => {
       const date = safeDate(event.data);
       return date && date >= today;
@@ -853,7 +1738,7 @@ function renderNextEvents() {
     .sort(byDate)
     .slice(0, 6);
 
-  document.querySelector("#next-events").innerHTML = events
+  document.querySelector("#next-events").innerHTML = events.length ? events
     .map(
       (event) => `<article class="event">
         <strong>${event.ativo || event.sistema}</strong>
@@ -861,18 +1746,26 @@ function renderNextEvents() {
         <span class="badge ${event.status.toLowerCase().includes("vencido") ? "vencido" : "programado"}">${event.status}</span>
       </article>`,
     )
-    .join("");
+    .join("") : `<div class="empty-state">Nenhuma atividade programada.</div>`;
 }
 
 function renderFilters() {
-  document.querySelector("#planning-horizon").value = planningHorizonYears();
+  const horizonInput = document.querySelector("#planning-horizon");
+  const selectedBuildings = selectedReportBuildingIds("timeline");
+  const horizons = [...new Set(selectedBuildings.map(buildingHorizonYears))];
+  horizonInput.value = horizons.length === 1 ? horizons[0] : "";
+  horizonInput.disabled = !selectedBuildings.length;
+  document.querySelector("#planning-horizon-note").textContent =
+    selectedBuildings.length > 1
+      ? "A alteração será aplicada a todas as edificações marcadas."
+      : reportHorizonDescription("timeline");
   const systems = ["", ...new Set(state.assets.map((asset) => asset.sistema).filter(Boolean).sort())];
   const systemSelect = document.querySelector("#system-filter");
   const currentSystem = systemSelect.value;
   systemSelect.innerHTML = systems.map((s) => `<option value="${s}">${s || "Todos"}</option>`).join("");
   systemSelect.value = currentSystem;
 
-  const years = ["", ...Object.keys(eventsByYear()).sort()];
+  const years = ["", ...Object.keys(eventsByYear("timeline")).sort()];
   const yearSelect = document.querySelector("#year-filter");
   const currentYear = yearSelect.value;
   yearSelect.innerHTML = years.map((y) => `<option value="${y}">${y || "Todos"}</option>`).join("");
@@ -915,6 +1808,37 @@ function setupChoice(id, value = "") {
   updateChoiceMode(id);
 }
 
+function setupAssetScopeChoices(buildingId, selectedLocationId = "", selectedSystemId = "") {
+  const locationSelect = document.querySelector("#asset-ambiente");
+  const systemSelect = document.querySelector("#asset-sistema");
+  const locationInput = document.querySelector("#asset-ambiente-new");
+  const systemInput = document.querySelector("#asset-sistema-new");
+  const locations = buildingData.locations
+    .filter((location) => location.building_id === buildingId)
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || a.name.localeCompare(b.name, "pt-BR"));
+  const systems = buildingData.systems
+    .filter((system) => system.building_id === buildingId)
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+
+  locationSelect.innerHTML = [
+    `<option value="">Selecionar localização</option>`,
+    ...locations.map((location) =>
+      `<option value="${location.id}">${escapeHtml(location.name)} · ${escapeHtml(locationTypeLabel(location.location_type))}</option>`),
+  ].join("");
+  systemSelect.innerHTML = [
+    `<option value="">Selecionar sistema</option>`,
+    ...systems.map((system) => `<option value="${system.id}">${escapeHtml(system.name)}</option>`),
+  ].join("");
+  locationSelect.disabled = !buildingId;
+  systemSelect.disabled = !buildingId;
+  locationSelect.value = locations.some((location) => location.id === selectedLocationId) ? selectedLocationId : "";
+  systemSelect.value = systems.some((system) => system.id === selectedSystemId) ? selectedSystemId : "";
+  locationInput.value = "";
+  systemInput.value = "";
+  locationSelect.closest(".choice-field").classList.remove("is-new");
+  systemSelect.closest(".choice-field").classList.remove("is-new");
+}
+
 function updateChoiceMode(id) {
   const select = document.querySelector(`#asset-${id}`);
   const field = select.closest(".choice-field");
@@ -932,7 +1856,7 @@ function assetCostSummary(asset) {
   const periodicityMonths = Number(asset.periodicidadeMeses || 0);
   const maintenanceCost = Number(asset.custoTotal || 0);
   const assetValue = Number(asset.valorAtivo || 0);
-  const totalCycles = clampCycles(asset.totalCiclos, lifeYears);
+  const totalCycles = clampCycles(asset.totalCiclos, lifeYears, asset.buildingId);
   const renew = (asset.fimVida || "renovar") === "renovar";
   const maintenanceCountPerCycle = lifeYears && periodicityMonths ? Math.floor((lifeYears * 12) / periodicityMonths) : 0;
   const maintenancePerCycle = maintenanceCountPerCycle * maintenanceCost;
@@ -969,20 +1893,26 @@ function renderAssets() {
   const assets = state.assets
     .filter((asset) => {
       const haystack = `${asset.ambiente} ${asset.sistema} ${asset.ativo} ${asset.componente} ${asset.acao}`.toLowerCase();
-      return (!query || haystack.includes(query)) && (!system || asset.sistema === system);
+      return (!query || haystack.includes(query)) &&
+        (!system || asset.sistema === system) &&
+        reportIncludesAsset(asset, "assets");
     })
     .sort((a, b) => compareAssets(a, b, sortMode));
 
-  document.querySelector("#asset-list").innerHTML = assets
+  document.querySelector("#asset-list").innerHTML = assets.length ? assets
     .map((asset) => {
       const status = statusFor(asset.proximaManutencao);
       const image = asset.foto ? `<img src="${asset.foto}" alt="Foto de ${asset.ativo}" />` : "Foto";
       const costs = assetCostSummary(asset);
+      const assetBuilding = asset.buildingAssignmentPending
+        ? `<span class="badge vencido">Edificação pendente</span>`
+        : `<span class="badge programado">${escapeHtml(buildingName(asset.buildingId))}</span>`;
       return `<article class="asset-card ${focusedAssetId === asset.id ? "is-focused" : ""}">
         <div class="thumb">${image}</div>
         <div class="asset-card-content">
           <strong>${asset.ativo || "Ativo sem nome"}</strong>
           <div class="meta">${asset.sistema} · ${asset.ambiente} · ${asset.acao || "Sem ação definida"}</div>
+          ${assetBuilding}
           <span class="badge ${status.toLowerCase().includes("vencido") ? "vencido" : "programado"}">${status}</span>
           <div class="asset-metrics">
             <div><span>Ano inicial</span><strong>${costs.initialYear || "Não informado"}</strong></div>
@@ -1001,7 +1931,10 @@ function renderAssets() {
         </div>
       </article>`;
     })
-    .join("");
+    .join("") : `<div class="empty-state empty-state-large">
+      <strong>Nenhum ativo cadastrado</strong>
+      <span>Comece configurando a edificação, seus espaços e sistemas. Depois, adicione os ativos.</span>
+    </div>`;
 }
 
 function compareAssets(a, b, sortMode) {
@@ -1064,12 +1997,12 @@ function compareAssets(a, b, sortMode) {
 function renderTimeline() {
   const year = document.querySelector("#year-filter").value;
   const status = document.querySelector("#status-filter").value;
-  const events = state.recurrenceEvents
+  const events = reportEvents("timeline")
     .filter((event) => (!year || event.data.startsWith(year)) && (!status || statusFor(event.data) === status))
     .sort(byDate)
     .slice(0, 80);
 
-  document.querySelector("#timeline-list").innerHTML = events
+  document.querySelector("#timeline-list").innerHTML = events.length ? events
     .map(
       (event) => `<article class="timeline-item">
         <div class="timeline-date">${formatDate(event.data)}</div>
@@ -1081,11 +2014,16 @@ function renderTimeline() {
         <strong>${money.format(event.custo || 0)}</strong>
       </article>`,
     )
-    .join("");
+    .join("") : `<div class="empty-state empty-state-large">
+      <strong>Nenhuma manutenção programada</strong>
+      <span>O cronograma será preenchido a partir dos ativos e seus planos de manutenção.</span>
+    </div>`;
 }
 
 function renderFinance() {
-  const { execution, provision, executionEvents } = financeSeries();
+  document.querySelector("#finance-horizon-summary").textContent =
+    `Horizonte de planejamento: ${reportHorizonDescription("finance")}`;
+  const { execution, provision, executionEvents } = financeSeries("finance");
   const years = yearsFromSeries(execution, provision);
   const maxExecution = Math.max(...Object.values(execution), 1);
   const maxProvision = Math.max(...Object.values(provision), 1);
@@ -1192,6 +2130,8 @@ function showExecutionDetail(row, month, events, persist = false) {
 function activateView(view) {
   document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   document.querySelectorAll(".view").forEach((item) => item.classList.toggle("active", item.id === `${view}-view`));
+  if (view === "buildings") renderBuildings();
+  if (view === "systems") renderSystemsView();
   if (view === "timeline") {
     requestAnimationFrame(() => requestAnimationFrame(renderTimelineCalendar));
   }
@@ -1216,8 +2156,13 @@ function openDialog(asset) {
   const data = asset || {};
   editingPhoto = data.foto || "";
   document.querySelector("#asset-id").value = data.id || "";
-  setupChoice("ambiente", data.ambiente || "");
-  setupChoice("sistema", data.sistema || "");
+  const buildingSelect = document.querySelector("#asset-building");
+  buildingSelect.innerHTML = [
+    `<option value="">Pendente — selecione a edificação</option>`,
+    ...buildingData.buildings.map((building) => `<option value="${building.id}">${escapeHtml(building.name)}</option>`),
+  ].join("");
+  buildingSelect.value = data.buildingAssignmentPending ? "" : data.buildingId || "";
+  setupAssetScopeChoices(buildingSelect.value, data.locationId || "", data.systemId || "");
   setupChoice("ativo", data.ativo || "");
   setupChoice("componente", data.componente || "");
   setupChoice("acao", data.acao || "");
@@ -1248,7 +2193,7 @@ function renderAssetSummary() {
   const assetValue = parseCurrencyInput(document.querySelector("#asset-valor").value);
   const endMode = getLifeEndMode();
   const totalCycles = updateCycleLimit(document.querySelector("#asset-ciclos").value || 1);
-  const maximumCycles = maxCyclesForLife(lifeYears);
+  const maximumCycles = maxCyclesForLife(lifeYears, document.querySelector("#asset-building").value);
   const effectiveCycles = totalCycles;
   const startDate = safeDate(installationDate);
   const dates = startDate
@@ -1342,14 +2287,31 @@ function renderAssetSummary() {
     </div>`;
 
   summary.querySelectorAll(".asset-event-check input[data-event-key]").forEach((checkbox) => {
-    checkbox.addEventListener("change", () => {
+    checkbox.addEventListener("change", async () => {
       const event = state.recurrenceEvents.find((item) => eventScheduleKey(item) === checkbox.dataset.eventKey);
       if (!event) return;
+      const previous = event.realizada;
       event.realizada = checkbox.checked;
       event.status = checkbox.checked ? "Realizada" : statusFor(event.data);
-      saveState();
-      render();
-      renderAssetSummary();
+      try {
+        if (event.dbId) {
+          await supabaseRequest(`/rest/v1/maintenance_events?id=eq.${encodeURIComponent(event.dbId)}`, {
+            method: "PATCH",
+            token: currentSession.access_token,
+            body: {
+              completed: checkbox.checked,
+              status: checkbox.checked ? "cumprido" : "perdido",
+              execution_date: checkbox.checked ? calendarDateKey(new Date()) : null,
+            },
+          });
+        }
+        render();
+        renderAssetSummary();
+      } catch {
+        event.realizada = previous;
+        checkbox.checked = previous === true;
+        window.alert("Não foi possível atualizar esta manutenção no Supabase.");
+      }
     });
   });
 }
@@ -1357,7 +2319,7 @@ function renderAssetSummary() {
 function buildAssetEvents(asset) {
   const events = [];
   const installDate = safeDate(asset.dataInstalacao);
-  const totalCycles = clampCycles(asset.totalCiclos, asset.expectativaVidaAnos);
+  const totalCycles = clampCycles(asset.totalCiclos, asset.expectativaVidaAnos, asset.buildingId);
   const renew = (asset.fimVida || "renovar") === "renovar";
   const effectiveCycles = totalCycles;
 
@@ -1428,6 +2390,26 @@ function buildAssetEvents(asset) {
 
 function syncAssetSchedule(asset) {
   const previousEvents = state.recurrenceEvents.filter((event) => event.assetId === asset.id);
+  const canRebuildSchedule = Boolean(
+    asset.dataInstalacao &&
+    asset.expectativaVidaAnos &&
+    asset.periodicidadeMeses,
+  );
+
+  if (!canRebuildSchedule && previousEvents.length) {
+    previousEvents.forEach((event) => {
+      event.sistema = asset.sistema;
+      event.ambiente = asset.ambiente;
+      event.ativo = asset.ativo;
+      event.acao = asset.acao || event.acao;
+      event.prioridade = asset.prioridade;
+      if (!String(event.tipo || "").startsWith("Substit")) {
+        event.custo = Number(asset.custoTotal || 0);
+      }
+    });
+    return;
+  }
+
   const completionByKey = new Map(
     previousEvents.map((event) => [eventScheduleKey(event), { realizada: event.realizada, status: event.status }]),
   );
@@ -1448,36 +2430,59 @@ function syncAssetSchedule(asset) {
 function updateCycleLimit(requestedCycles) {
   const input = document.querySelector("#asset-ciclos");
   const lifeYears = Number(document.querySelector("#asset-vida").value || 0);
-  const maximum = maxCyclesForLife(lifeYears);
-  const cycles = clampCycles(requestedCycles, lifeYears);
+  const buildingId = document.querySelector("#asset-building").value;
+  const maximum = maxCyclesForLife(lifeYears, buildingId);
+  const cycles = clampCycles(requestedCycles, lifeYears, buildingId);
   input.max = maximum || "";
   input.value = cycles;
   input.title = maximum
-    ? `Máximo de ${maximum} ciclo(s) no horizonte de ${planningHorizonYears()} anos`
+    ? `Máximo de ${maximum} ciclo(s) no horizonte de ${planningHorizonYears(buildingId)} anos`
     : "Informe a expectativa de vida para calcular o limite";
   return cycles;
 }
 
-function applyPlanningHorizon() {
-  state.assets.forEach((asset) => {
-    asset.totalCiclos = clampCycles(asset.totalCiclos, asset.expectativaVidaAnos);
+async function applyPlanningHorizon(buildingIds = selectedReportBuildingIds("timeline")) {
+  const affectedAssets = state.assets.filter((asset) => buildingIds.includes(asset.buildingId));
+  affectedAssets.forEach((asset) => {
+    asset.totalCiclos = clampCycles(asset.totalCiclos, asset.expectativaVidaAnos, asset.buildingId);
     syncAssetSchedule(asset);
   });
-  saveState();
   render();
+  try {
+    for (const asset of affectedAssets.filter((item) => item.dbId)) {
+      await supabaseRequest(`/rest/v1/assets?id=eq.${encodeURIComponent(asset.dbId)}`, {
+        method: "PATCH",
+        token: currentSession.access_token,
+        body: { total_cycles: asset.totalCiclos },
+      });
+      await persistAssetSchedule(asset, asset.planDbId);
+    }
+    await loadOperationalData();
+  } catch {
+    window.alert("O horizonte foi alterado localmente, mas não foi possível atualizar toda a programação no Supabase.");
+  }
 }
 
-function deleteAsset(assetId) {
+async function deleteAsset(assetId) {
   const asset = state.assets.find((item) => item.id === assetId);
   if (!asset) return;
   const ok = window.confirm(`Excluir "${asset.ativo || asset.sistema || asset.id}" e remover sua programação financeira?`);
   if (!ok) return;
-  state.assets = state.assets.filter((item) => item.id !== assetId);
-  state.recurrenceEvents = state.recurrenceEvents.filter((event) => event.assetId !== assetId);
-  if (focusedAssetId === assetId) focusedAssetId = "";
-  saveState();
-  document.querySelector("#asset-dialog").close();
-  render();
+  try {
+    if (asset.dbId) {
+      await supabaseRequest(`/rest/v1/assets?id=eq.${encodeURIComponent(asset.dbId)}`, {
+        method: "DELETE",
+        token: currentSession.access_token,
+      });
+    }
+    state.assets = state.assets.filter((item) => item.id !== assetId);
+    state.recurrenceEvents = state.recurrenceEvents.filter((event) => event.assetId !== assetId);
+    if (focusedAssetId === assetId) focusedAssetId = "";
+    document.querySelector("#asset-dialog").close();
+    render();
+  } catch {
+    window.alert("Não foi possível excluir o ativo no Supabase.");
+  }
 }
 
 function renderPhotoPreview() {
@@ -1486,14 +2491,99 @@ function renderPhotoPreview() {
   preview.style.display = editingPhoto ? "block" : "none";
 }
 
-function saveAsset() {
+async function ensureAssetType(name) {
+  const types = await supabaseRequest(
+    `/rest/v1/asset_types?select=*&owner_id=eq.${encodeURIComponent(currentUserId)}`,
+    { token: currentSession.access_token },
+  );
+  let assetType = types.find(
+    (item) => item.name.localeCompare(name, "pt-BR", { sensitivity: "base" }) === 0,
+  );
+  if (assetType) return assetType;
+
+  const rows = await supabaseRequest("/rest/v1/asset_types", {
+    method: "POST",
+    token: currentSession.access_token,
+    headers: { Prefer: "return=representation" },
+    body: { owner_id: currentUserId, name },
+  });
+  return rows[0];
+}
+
+function databaseEventBody(event, asset, planId) {
+  const replacement = String(event.tipo || "").startsWith("Substit");
+  const eventType = replacement ? "substituicao" : "manutencao";
+  const key = event.externalEventKey ||
+    `${asset.id}:${dateInputValue(event.data)}:${eventType}:c${Number(event.ciclo || 1)}`;
+  return {
+    owner_id: currentUserId,
+    building_id: asset.buildingId || asset.technicalBuildingId,
+    asset_id: asset.dbId,
+    plan_id: planId || null,
+    external_event_key: key,
+    event_type: eventType,
+    scheduled_date: dateInputValue(event.data),
+    execution_date: dateInputValue(event.dataExecucao) || null,
+    status: event.realizada === true
+      ? "cumprido"
+      : event.realizada === false
+        ? "perdido"
+        : String(event.status || "programado").toLocaleLowerCase("pt-BR"),
+    estimated_cost: Number(event.custo || 0),
+    actual_cost: event.custoReal === null || event.custoReal === undefined ? null : Number(event.custoReal),
+    completed: event.realizada === undefined ? null : event.realizada,
+    cycle_number: Number(event.ciclo || 1),
+    provision_start_date: dateInputValue(event.provisionStart) || null,
+    properties: {
+      action: event.acao || "",
+      environment: event.ambiente || "",
+      asset_name: event.ativo || asset.ativo,
+      priority: event.prioridade || "",
+      system: event.sistema || "",
+    },
+  };
+}
+
+async function persistAssetSchedule(asset, planId) {
+  await supabaseRequest(`/rest/v1/maintenance_events?asset_id=eq.${encodeURIComponent(asset.dbId)}`, {
+    method: "DELETE",
+    token: currentSession.access_token,
+  });
+  const events = state.recurrenceEvents.filter((event) => event.assetId === asset.id);
+  if (!events.length) return;
+  await supabaseRequest("/rest/v1/maintenance_events", {
+    method: "POST",
+    token: currentSession.access_token,
+    headers: { Prefer: "return=representation" },
+    body: events.map((event) => databaseEventBody(event, asset, planId)),
+  });
+}
+
+async function saveAsset() {
+  if (!buildingData.buildings.length) {
+    window.alert("Crie uma edificação antes de cadastrar ativos.");
+    return;
+  }
+  const targetBuildingId = document.querySelector("#asset-building").value;
+  if (!targetBuildingId) {
+    window.alert("Selecione a edificação deste ativo.");
+    return;
+  }
   const id = document.querySelector("#asset-id").value || `ATIVO-${Date.now()}`;
   const periodicidadeMeses = Number(document.querySelector("#asset-periodicidade").value || 0);
   const ultimaManutencao = document.querySelector("#asset-ultima").value;
   const proximaManutencao = nextDate(ultimaManutencao, periodicidadeMeses);
   const custoUnitario = parseCurrencyInput(document.querySelector("#asset-custo").value);
-  const ambiente = getChoiceValue("ambiente");
-  const sistema = getChoiceValue("sistema");
+  const locationId = document.querySelector("#asset-ambiente").value;
+  const systemId = document.querySelector("#asset-sistema").value;
+  const locationRecord = buildingData.locations.find(
+    (location) => location.id === locationId && location.building_id === targetBuildingId,
+  );
+  const systemRecord = buildingData.systems.find(
+    (system) => system.id === systemId && system.building_id === targetBuildingId,
+  );
+  const ambiente = locationRecord?.name || "";
+  const sistema = systemRecord?.name || "";
   const ativo = getChoiceValue("ativo");
   const componente = getChoiceValue("componente");
   const acao = getChoiceValue("acao");
@@ -1519,27 +2609,195 @@ function saveAsset() {
     expectativaVidaAnos: Number(document.querySelector("#asset-vida").value || 0),
     valorAtivo: parseCurrencyInput(document.querySelector("#asset-valor").value),
     fimVida: getLifeEndMode(),
-    totalCiclos: clampCycles(document.querySelector("#asset-ciclos").value, document.querySelector("#asset-vida").value),
+    totalCiclos: clampCycles(
+      document.querySelector("#asset-ciclos").value,
+      document.querySelector("#asset-vida").value,
+      targetBuildingId,
+    ),
     prioridade,
     estado: "",
     status: statusFor(proximaManutencao),
     responsavel,
     observacoes: "",
     foto: editingPhoto,
+    buildingId: targetBuildingId,
+    technicalBuildingId: targetBuildingId,
+    buildingAssignmentPending: false,
+    locationId,
+    systemId,
   };
 
   const index = state.assets.findIndex((item) => item.id === id);
-  if (index >= 0) state.assets[index] = asset;
-  else state.assets.unshift(asset);
-  syncAssetSchedule(asset);
+  const previous = index >= 0 ? state.assets[index] : null;
+  asset.dbId = previous?.dbId || "";
+  asset.planDbId = previous?.planDbId || "";
+  asset.dbProperties = previous?.dbProperties || {};
 
-  saveState();
-  document.querySelector("#asset-dialog").close();
-  render();
+  try {
+    const assetType = ativo ? await ensureAssetType(ativo) : null;
+    const body = {
+      ...(asset.dbId ? {} : { owner_id: currentUserId }),
+      building_id: targetBuildingId,
+      location_id: locationRecord?.id || null,
+      system_id: systemRecord?.id || null,
+      asset_type_id: assetType?.id || null,
+      external_code: id,
+      name: ativo || "Ativo pendente",
+      subsystem: asset.subsistema || null,
+      component: componente || null,
+      planned_action: acao || null,
+      quantity: 1,
+      unit: "un",
+      periodicity_months: periodicidadeMeses || null,
+      last_maintenance_date: ultimaManutencao || null,
+      next_maintenance_date: proximaManutencao || null,
+      installation_date: asset.dataInstalacao || null,
+      expected_life_years: asset.expectativaVidaAnos || null,
+      acquisition_value: asset.valorAtivo || 0,
+      estimated_unit_cost: custoUnitario || 0,
+      estimated_total_cost: custoUnitario || 0,
+      end_of_life_action: asset.fimVida,
+      total_cycles: asset.totalCiclos,
+      priority: prioridade || null,
+      status: asset.status,
+      responsible: responsavel || null,
+      photo_path: editingPhoto || null,
+      properties: {
+        ...asset.dbProperties,
+        building_assignment_pending: false,
+      },
+    };
+    const savedRows = await supabaseRequest(asset.dbId
+      ? `/rest/v1/assets?id=eq.${encodeURIComponent(asset.dbId)}`
+      : "/rest/v1/assets", {
+      method: asset.dbId ? "PATCH" : "POST",
+      token: currentSession.access_token,
+      headers: { Prefer: "return=representation" },
+      body,
+    });
+    asset.dbId = savedRows[0].id;
+
+    if (index >= 0) state.assets[index] = asset;
+    else state.assets.unshift(asset);
+    syncAssetSchedule(asset);
+
+    const hasMaintenancePlan = Boolean(acao || periodicidadeMeses || ultimaManutencao || custoUnitario);
+    if (hasMaintenancePlan || asset.planDbId) {
+      const planBody = {
+        ...(asset.planDbId ? {} : { owner_id: currentUserId }),
+        building_id: targetBuildingId,
+        asset_id: asset.dbId,
+        name: acao || "Manutenção periódica",
+        maintenance_type: "preventiva",
+        periodicity_months: periodicidadeMeses || null,
+        estimated_cost: custoUnitario || 0,
+        start_date: asset.dataInstalacao || ultimaManutencao || proximaManutencao || null,
+        active: hasMaintenancePlan,
+      };
+      const planRows = await supabaseRequest(asset.planDbId
+        ? `/rest/v1/maintenance_plans?id=eq.${encodeURIComponent(asset.planDbId)}`
+        : "/rest/v1/maintenance_plans", {
+        method: asset.planDbId ? "PATCH" : "POST",
+        token: currentSession.access_token,
+        headers: { Prefer: "return=representation" },
+        body: planBody,
+      });
+      asset.planDbId = planRows[0].id;
+    }
+    await persistAssetSchedule(asset, asset.planDbId);
+    document.querySelector("#asset-dialog").close();
+    await loadBuildingData();
+  } catch (error) {
+    window.alert(error.message || "Não foi possível salvar o ativo no Supabase.");
+  }
 }
 
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => activateView(tab.dataset.view));
+});
+
+["assets", "dashboard", "timeline", "finance"].forEach((report) => {
+  document.querySelector(`#${report}-building-filter`).addEventListener("change", (event) => {
+    if (!event.target.matches('input[type="checkbox"]')) return;
+    const selection = reportBuildingSelections[report];
+    if (event.target.checked) selection.add(event.target.value);
+    else selection.delete(event.target.value);
+    renderReportBuildingFilters();
+
+    if (report === "assets") {
+      renderAssets();
+    } else if (report === "dashboard") {
+      renderKpis();
+      renderSystemBars();
+      renderNextEvents();
+      renderCalendar();
+    } else if (report === "timeline") {
+      renderFilters();
+      renderTimeline();
+      renderTimelineCalendar();
+    } else {
+      renderFinance();
+    }
+  });
+});
+
+document.querySelector("#new-building").addEventListener("click", () => {
+  openBuildingDialog();
+});
+document.querySelector("#save-building").addEventListener("click", saveBuildingRecord);
+document.querySelector("#buildings-list").addEventListener("click", (event) => {
+  const summary = event.target.closest(".building-summary");
+  if (summary) event.preventDefault();
+
+  const toggle = event.target.closest(".building-toggle, .building-title");
+  if (toggle) {
+    toggleBuilding(toggle.dataset.buildingId);
+    return;
+  }
+
+  const editBuildingButton = event.target.closest(".edit-building");
+  if (editBuildingButton) {
+    const building = buildingData.buildings.find((item) => item.id === editBuildingButton.dataset.buildingId);
+    if (building) openBuildingDialog(building);
+    return;
+  }
+
+  const addLocationButton = event.target.closest(".add-location");
+  if (addLocationButton) {
+    openLocationDialog(addLocationButton.dataset.buildingId);
+    return;
+  }
+
+  const editLocationButton = event.target.closest(".edit-location");
+  if (editLocationButton) {
+    const location = buildingData.locations.find((item) => item.id === editLocationButton.dataset.locationId);
+    if (location) openLocationDialog(location.building_id, location);
+  }
+});
+document.querySelector("#buildings-list").addEventListener("keydown", (event) => {
+  const title = event.target.closest(".building-title");
+  if (title && (event.key === "Enter" || event.key === " ")) {
+    event.preventDefault();
+    toggleBuilding(title.dataset.buildingId);
+  }
+});
+document.querySelector("#save-location").addEventListener("click", saveLocationRecord);
+document.querySelector("#systems-building-filter").addEventListener("change", renderSystemsView);
+document.querySelector("#standards-catalog").addEventListener("click", (event) => {
+  const button = event.target.closest(".add-standard-system");
+  if (button && !button.disabled) createNormativeSystem(button.dataset.systemKey);
+});
+document.querySelector("#new-custom-system").addEventListener("click", () => {
+  if (!selectedSystemsBuildingId()) {
+    setDataMessage("systems-message", "Crie uma edificação antes de cadastrar sistemas.");
+    return;
+  }
+  document.querySelector("#system-dialog").showModal();
+});
+document.querySelector("#save-custom-system").addEventListener("click", createCustomSystem);
+document.querySelector("#building-systems-list").addEventListener("click", (event) => {
+  const button = event.target.closest(".delete-building-system");
+  if (button) deleteBuildingSystem(button.dataset.systemId);
 });
 
 document.querySelector("#new-asset").addEventListener("click", () => openDialog());
@@ -1589,7 +2847,7 @@ document.querySelector("#timeline-calendar-today").addEventListener("click", () 
   renderTimelineCalendar();
 });
 document.querySelector("#timeline-calendar-range").addEventListener("input", (event) => {
-  const bounds = calendarBounds();
+  const bounds = calendarBounds("timeline");
   const index = bounds.minIndex + Number(event.target.value || 0);
   timelineCalendarCursor = new Date(Math.floor(index / 12), index % 12, 1);
   renderTimelineCalendar();
@@ -1600,13 +2858,30 @@ window.addEventListener("resize", () => {
   timelineCalendarResizeTimer = setTimeout(renderTimelineCalendar, 120);
 });
 document.querySelector("#planning-horizon").addEventListener("change", (event) => {
-  state.settings.planningHorizonYears = Math.max(1, Number(event.target.value || 50));
-  applyPlanningHorizon();
+  const years = Math.max(1, Number(event.target.value || 50));
+  const buildingIds = selectedReportBuildingIds("timeline");
+  Promise.all(buildingIds.map((buildingId) => {
+    const building = buildingData.buildings.find((item) => item.id === buildingId);
+    building.properties = {
+      ...(building.properties || {}),
+      planning_horizon_years: years,
+    };
+    return supabaseRequest(`/rest/v1/buildings?id=eq.${encodeURIComponent(buildingId)}`, {
+      method: "PATCH",
+      token: currentSession.access_token,
+      body: { properties: building.properties },
+    });
+  }))
+    .then(() => applyPlanningHorizon(buildingIds))
+    .catch(() => window.alert("Não foi possível atualizar o horizonte das edificações."));
 });
 document.querySelector("#year-filter").addEventListener("change", renderTimeline);
 document.querySelector("#status-filter").addEventListener("change", renderTimeline);
 document.querySelector("#owners-input").addEventListener("input", renderFinance);
 document.querySelector("#reserve-input").addEventListener("input", renderFinance);
+document.querySelector("#asset-building").addEventListener("change", (event) => {
+  setupAssetScopeChoices(event.target.value);
+});
 ["ambiente", "sistema", "ativo", "componente", "acao", "prioridade", "responsavel"].forEach((id) => {
   document.querySelector(`#asset-${id}`).addEventListener("change", () => updateChoiceMode(id));
 });
@@ -1630,10 +2905,10 @@ document.querySelector("#asset-encerrar").addEventListener("change", (event) => 
   document.querySelector("#asset-ciclos").value = 1;
   renderAssetSummary();
 });
-document.querySelector("#reset-data").addEventListener("click", () => {
+document.querySelector("#reset-data").addEventListener("click", async () => {
   localStorage.removeItem(storageKey);
-  state = loadState();
-  render();
+  state.settings = { planningHorizonYears: 50 };
+  await loadOperationalData();
 });
 document.querySelector("#asset-list").addEventListener("click", (event) => {
   const button = event.target.closest(".edit-asset");
@@ -1655,4 +2930,85 @@ document.querySelector("#asset-foto").addEventListener("change", (event) => {
   reader.readAsDataURL(file);
 });
 
-render();
+document.querySelector("#login-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = document.querySelector("#login-submit");
+  const message = document.querySelector("#auth-message");
+  submit.disabled = true;
+  submit.textContent = authMode === "signup" ? "Criando..." : "Entrando...";
+  setAuthMessage();
+
+  try {
+    const email = document.querySelector("#login-email").value.trim();
+    const password = document.querySelector("#login-password").value;
+
+    if (authMode === "signup") {
+      const confirmation = document.querySelector("#signup-password-confirmation").value;
+      if (password.length < 8) throw new Error("A senha deve ter pelo menos 8 caracteres.");
+      if (password !== confirmation) throw new Error("As senhas não coincidem.");
+
+      const result = await signUp(
+        document.querySelector("#signup-name").value.trim(),
+        email,
+        password,
+      );
+
+      if (result.access_token && result.user) {
+        showApplication(result.user, result);
+      } else {
+        setAuthMode("login");
+        document.querySelector("#login-email").value = email;
+        setAuthMessage("Conta criada. Confirme o e-mail recebido antes de entrar.", "success");
+      }
+    } else {
+      const session = await signIn(email, password);
+      showApplication(session.user, session);
+    }
+  } catch (error) {
+    const knownMessage = String(error.message || "");
+    if (knownMessage.includes("already registered")) {
+      setAuthMessage("Este e-mail já possui uma conta.");
+    } else if (knownMessage.includes("rate limit")) {
+      setAuthMessage("Muitas tentativas seguidas. Aguarde um pouco e tente novamente.");
+    } else if (knownMessage === "As senhas não coincidem." || knownMessage.includes("pelo menos 8")) {
+      setAuthMessage(knownMessage);
+    } else {
+      setAuthMessage(error.status === 400
+        ? (authMode === "signup" ? "Não foi possível criar a conta com esses dados." : "E-mail ou senha incorretos.")
+        : "Não foi possível conectar ao Supabase. Tente novamente.");
+    }
+  } finally {
+    submit.disabled = false;
+    submit.textContent = authMode === "signup" ? "Criar conta" : "Entrar";
+  }
+});
+
+document.querySelector("#auth-mode-toggle").addEventListener("click", () => {
+  setAuthMode(authMode === "login" ? "signup" : "login");
+});
+
+document.querySelectorAll("[data-demo-user]").forEach((button) => {
+  button.addEventListener("click", () => {
+    setAuthMode("login");
+    const email = button.dataset.demoUser === "owner"
+      ? "demo.proprietario@example.com"
+      : "demo.gestor@example.com";
+    document.querySelector("#login-email").value = email;
+    document.querySelector("#login-password").focus();
+    document.querySelector("#auth-message").textContent = "Digite a senha do usuário de demonstração.";
+  });
+});
+
+document.querySelector("#logout-button").addEventListener("click", async () => {
+  const token = currentSession?.access_token;
+  if (token) {
+    try {
+      await supabaseRequest("/auth/v1/logout", { method: "POST", token });
+    } catch {
+      // A sessão local deve ser encerrada mesmo se a rede estiver indisponível.
+    }
+  }
+  showLogin();
+});
+
+initializeAuth();

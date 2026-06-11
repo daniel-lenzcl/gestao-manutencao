@@ -11,3 +11,9 @@
 Thumbs.db
 .DS_Store
 
+# Credenciais locais do Supabase
+.env.supabase
+.env.local
+
+# Arquivos temporarios de analise
+.tmp-spreadsheet-audit/
