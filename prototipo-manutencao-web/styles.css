@@ -1604,6 +1604,7 @@ select,
 
 .asset-card {
   align-items: center;
+  cursor: pointer;
   display: grid;
   gap: 14px;
   grid-template-columns: 76px 1fr auto;
@@ -1655,6 +1656,10 @@ select,
 .asset-card.is-focused {
   border-color: var(--accent-2);
   box-shadow: 0 0 0 3px rgba(200, 95, 61, 0.18), var(--shadow);
+}
+
+.asset-card .card-actions {
+  cursor: default;
 }
 
 .detail-link {
@@ -1955,6 +1960,427 @@ dialog::backdrop {
   margin-bottom: 18px;
 }
 
+.editor-view .asset-editor-panel {
+  padding: 20px;
+}
+
+.asset-editor-form {
+  display: grid;
+  gap: 14px;
+}
+
+.asset-editor-heading {
+  align-items: start;
+}
+
+.editor-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.asset-section-heading {
+  align-items: end;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+}
+
+.asset-section-heading h3 {
+  font-size: 22px;
+  margin: 0;
+}
+
+.asset-section-heading > span {
+  color: var(--muted);
+  font-family: "Segoe UI", sans-serif;
+  font-size: 12px;
+  max-width: 420px;
+  text-align: right;
+}
+
+.maintenance-plan-section {
+  border-left: 4px solid var(--accent);
+  padding: 14px 16px;
+}
+
+.maintenance-plan-section .asset-section-heading {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+}
+
+.compact-add-action {
+  margin-top: 10px;
+}
+
+.maintenance-add-row {
+  align-items: baseline;
+  display: flex;
+  gap: 10px;
+}
+
+.maintenance-add-row small {
+  color: var(--muted);
+  font-family: "Segoe UI", sans-serif;
+  font-size: 10px;
+}
+
+.maintenance-action-form {
+  background: rgba(238, 246, 241, 0.66);
+  border: 1px solid rgba(23, 109, 99, 0.24);
+  border-radius: 8px;
+  margin-top: 10px;
+  padding: 10px;
+}
+
+.compact-form-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.compact-form-heading strong {
+  font-size: 16px;
+}
+
+.compact-close {
+  font-size: 18px;
+  height: 28px;
+  min-height: 28px;
+  width: 28px;
+}
+
+.compact-form-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.compact-form-grid label {
+  color: var(--muted);
+  display: grid;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 11px;
+  gap: 3px;
+}
+
+.compact-form-grid input,
+.compact-form-grid select,
+.compact-form-grid .money-input {
+  font-size: 12px;
+  min-height: 32px;
+  padding: 5px 7px;
+}
+
+.compact-form-grid .money-input {
+  padding: 0;
+}
+
+.compact-form-grid .money-input input {
+  min-height: 30px;
+}
+
+.maintenance-action-form.is-corrective .recurrence-field {
+  display: none;
+}
+
+.maintenance-action-form:not(.is-corrective) .corrective-field {
+  display: none;
+}
+
+.compact-form-actions {
+  display: flex;
+  gap: 7px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.compact-form-actions button,
+.compact-add-action {
+  font-size: 11px;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.asset-maintenance-actions {
+  display: grid;
+  gap: 4px;
+}
+
+.asset-maintenance-plan-list {
+  display: grid;
+  gap: 5px;
+}
+
+.maintenance-list-heading {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.maintenance-list-heading strong {
+  font-size: 13px;
+}
+
+.maintenance-list-heading span {
+  color: var(--muted);
+  font-family: "Segoe UI", sans-serif;
+  font-size: 10px;
+}
+
+.maintenance-plan-row {
+  align-items: center;
+  background: rgba(238, 246, 241, 0.54);
+  border: 1px solid rgba(23, 109, 99, 0.18);
+  border-left: 4px solid #d8a126;
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 24px minmax(0, 1fr) 105px 105px 118px;
+  min-height: 40px;
+  padding: 5px 7px;
+}
+
+.maintenance-plan-row.corrective {
+  background: rgba(196, 81, 61, 0.06);
+  border-left-color: #c4513d;
+}
+
+.maintenance-plan-number {
+  color: var(--muted);
+  font-family: "Segoe UI", sans-serif;
+  font-size: 11px;
+}
+
+.maintenance-plan-name {
+  align-items: baseline;
+  display: flex;
+  gap: 7px;
+  min-width: 0;
+}
+
+.maintenance-plan-name strong {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maintenance-plan-name span {
+  color: var(--muted);
+  font-family: "Segoe UI", sans-serif;
+  font-size: 10px;
+}
+
+.maintenance-plan-period,
+.maintenance-plan-cost {
+  font-size: 12px;
+}
+
+.maintenance-plan-cost {
+  text-align: right;
+}
+
+.maintenance-plan-actions {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.maintenance-plan-actions button {
+  font-size: 10px;
+  min-height: 27px;
+  padding: 4px 7px;
+}
+
+.maintenance-rule-remove {
+  background: transparent;
+  border: 1px solid rgba(196, 81, 61, 0.42);
+  border-radius: 6px;
+  color: #a43f2f;
+}
+
+.maintenance-program-heading {
+  align-items: end;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 10px;
+}
+
+.maintenance-program-heading > div {
+  display: grid;
+  gap: 1px;
+}
+
+.maintenance-program-heading strong {
+  font-size: 15px;
+}
+
+.maintenance-program-heading span {
+  color: var(--muted);
+  font-family: "Segoe UI", sans-serif;
+  font-size: 10px;
+}
+
+.maintenance-action-row {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-left: 4px solid #d8a126;
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 22px minmax(0, 1fr) 125px 110px;
+  min-height: 38px;
+  padding: 5px 7px;
+  transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
+}
+
+.maintenance-action-row.corrective {
+  border-left-color: #c4513d;
+}
+
+.maintenance-action-row.replacement {
+  background: rgba(232, 117, 40, 0.08);
+  border-left-color: #e87528;
+}
+
+.maintenance-action-row.preventive {
+  border-left-color: #d8a126;
+}
+
+.maintenance-action-row.is-future {
+  background: rgba(229, 168, 46, 0.11);
+  border-color: rgba(213, 138, 24, 0.34);
+}
+
+.maintenance-action-row.corrective.is-future {
+  background: rgba(196, 81, 61, 0.08);
+  border-color: rgba(196, 81, 61, 0.3);
+}
+
+.maintenance-action-row.is-today {
+  background: rgba(23, 109, 99, 0.14);
+  border-color: #176d63;
+  box-shadow: inset 0 0 0 1px rgba(23, 109, 99, 0.12);
+}
+
+.maintenance-action-row.is-past-completed {
+  background: rgba(47, 125, 105, 0.08);
+  border-color: rgba(47, 125, 105, 0.22);
+  opacity: 0.58;
+}
+
+.maintenance-action-row.is-past-missed {
+  background: rgba(120, 112, 99, 0.06);
+  border-color: rgba(120, 112, 99, 0.2);
+  opacity: 0.48;
+}
+
+.maintenance-action-row.is-past-completed:hover,
+.maintenance-action-row.is-past-missed:hover {
+  opacity: 0.82;
+}
+
+.maintenance-action-check {
+  accent-color: #2f7d69;
+  cursor: pointer;
+  height: 16px;
+  margin: 0;
+  min-height: 16px;
+  padding: 0;
+  width: 16px;
+}
+
+.maintenance-action-check:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.maintenance-action-status-mark {
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: #b35b42;
+  display: flex;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 11px;
+  height: 17px;
+  justify-content: center;
+  width: 17px;
+}
+
+.maintenance-action-status-mark.is-completed {
+  background: #2f7d69;
+  border-color: #2f7d69;
+  color: white;
+}
+
+.maintenance-action-name {
+  align-items: baseline;
+  display: flex;
+  gap: 7px;
+  min-width: 0;
+}
+
+.maintenance-action-name strong {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maintenance-action-name span,
+.maintenance-action-row time {
+  color: var(--muted);
+  font-family: "Segoe UI", sans-serif;
+  font-size: 10px;
+}
+
+.maintenance-action-row.corrective .maintenance-action-name span {
+  color: #a43f2f;
+}
+
+.maintenance-action-row.replacement .maintenance-action-name span {
+  color: #bd5617;
+}
+
+.maintenance-action-cost {
+  font-size: 12px;
+  text-align: right;
+}
+
+.maintenance-action-remove {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 17px;
+  min-height: 24px;
+  opacity: 0;
+  padding: 0;
+}
+
+.maintenance-action-row:hover .maintenance-action-remove,
+.maintenance-action-remove:focus {
+  opacity: 1;
+}
+
+.asset-maintenance-actions {
+  max-height: 330px;
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
+.compact-empty {
+  margin: 0;
+  padding: 10px;
+}
+
 .icon-button {
   border-radius: 50%;
   font-size: 24px;
@@ -1997,6 +2423,43 @@ dialog::backdrop {
 .asset-summary h3 {
   font-size: 20px;
   margin: 0 0 10px;
+}
+
+.asset-summary-dialog-form {
+  min-width: min(92vw, 860px);
+}
+
+.asset-summary-dialog-body {
+  display: grid;
+  gap: 16px;
+}
+
+.asset-summary-hero {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 92px 1fr;
+}
+
+.asset-summary-thumb {
+  height: 92px;
+  width: 92px;
+}
+
+.asset-summary-main strong {
+  display: block;
+  font-size: 24px;
+}
+
+.summary-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.asset-summary-grid {
+  margin-bottom: 0;
 }
 
 .summary-grid {
@@ -2267,6 +2730,50 @@ dialog::backdrop {
   .form-grid,
   .summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .asset-summary-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .asset-summary-thumb {
+    height: 76px;
+    width: 76px;
+  }
+
+  .asset-section-heading {
+    align-items: start;
+    display: grid;
+  }
+
+  .asset-section-heading > span {
+    text-align: left;
+  }
+
+  .compact-form-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .maintenance-plan-row {
+    grid-template-columns: 20px minmax(0, 1fr) 70px 82px;
+  }
+
+  .maintenance-plan-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+  }
+
+  .maintenance-action-row {
+    grid-template-columns: 20px minmax(0, 1fr) 88px 82px;
+  }
+
+  .maintenance-action-name {
+    display: grid;
+    gap: 1px;
+  }
+
+  .maintenance-action-remove {
+    opacity: 1;
   }
 
   .dashboard-overview {

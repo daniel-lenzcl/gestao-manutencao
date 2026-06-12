@@ -6,7 +6,7 @@ O banco cobre:
 - perfil individual para cada usuario;
 - varios modelos por usuario;
 - varias edificacoes por usuario;
-- arvore hierarquica de localizacoes;
+- arvore hierarquica de ambientes;
 - sistemas de cada modelo e edificacao;
 - tipos e instancias de ativos;
 - biblioteca de rotinas de manutencao;
@@ -17,7 +17,7 @@ O banco cobre:
 
 O usuario cria um modelo, por exemplo `Casa geminada`, contendo:
 
-- localizacoes hierarquicas do modelo;
+- ambientes hierarquicos do modelo;
 - sistemas sugeridos do modelo.
 
 Ao criar uma edificacao a partir desse modelo, a funcao
@@ -35,6 +35,8 @@ instancias.
    `supabase/migrations/202606110001_assets_maintenance.sql`.
 5. Para permitir o cadastro inicial apenas com a edificacao, execute:
    `supabase/migrations/202606110002_allow_pending_assets.sql`.
+6. Para adicionar a estrutura de galerias e a view `ambientes`, execute:
+   `supabase/migrations/202606120001_galeria_e_ambientes.sql`.
 
 Como alternativa, depois de instalar e vincular o Supabase CLI:
 
@@ -76,7 +78,7 @@ Todas as tabelas operacionais usam RLS. Um usuario autenticado:
 - enxerga e altera apenas seu perfil;
 - enxerga e altera apenas seus modelos;
 - enxerga e altera apenas suas edificacoes;
-- acessa localizacoes e sistemas somente quando a entidade pai lhe pertence.
+- acessa ambientes e sistemas somente quando a entidade pai lhe pertence.
 
 Os tipos gerais de edificacao sao somente leitura para usuarios autenticados.
 

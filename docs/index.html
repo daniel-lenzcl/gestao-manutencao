@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Manutencao Predial</title>
-    <link rel="stylesheet" href="./styles.css?v=20260611-2" />
+    <link rel="stylesheet" href="./styles.css?v=20260612-4" />
   </head>
   <body class="auth-pending">
     <section class="auth-screen" id="auth-screen" aria-labelledby="auth-title">
@@ -18,7 +18,7 @@
         <div>
           <p class="eyebrow">Gestão predial</p>
           <h1 id="auth-title">Acesse suas edificações</h1>
-          <p class="auth-intro">Entre para consultar modelos, localizações, sistemas e o planejamento de cada edificação.</p>
+          <p class="auth-intro">Entre para consultar modelos, ambientes, sistemas e o planejamento de cada edificação.</p>
         </div>
         <form id="login-form" class="auth-form">
           <label class="signup-only">
@@ -150,7 +150,7 @@
         <div class="section-heading">
           <div>
             <p class="eyebrow">Estrutura física</p>
-            <h2>Edificações e localizações</h2>
+            <h2>Edificações e ambientes</h2>
             <p>Cadastre os prédios e organize pavimentos, unidades, ambientes e áreas técnicas em uma árvore.</p>
           </div>
           <button class="primary-button" id="new-building" type="button">Nova edificação</button>
@@ -224,6 +224,167 @@
           </label>
         </div>
         <div id="asset-list" class="asset-list"></div>
+      </section>
+
+      <section class="view editor-view" id="asset-editor-view">
+        <div class="section-heading asset-editor-heading">
+          <div>
+            <p class="eyebrow">Edição do ativo</p>
+            <h2 id="dialog-title">Novo ativo</h2>
+            <p>Edite os dados do ativo nesta tela e acompanhe o resumo da programação antes de salvar.</p>
+          </div>
+          <div class="editor-header-actions">
+            <button class="ghost-button" id="back-to-assets" type="button">Voltar para ativos</button>
+          </div>
+        </div>
+
+        <form id="asset-form" class="asset-editor-form">
+          <input id="asset-id" type="hidden" />
+          <section class="panel asset-editor-panel">
+            <div class="asset-section-heading">
+              <div>
+                <p class="eyebrow">Identificação</p>
+                <h3>Cadastro do ativo</h3>
+              </div>
+              <span>Quem é, onde está e a qual sistema pertence.</span>
+            </div>
+            <div class="form-grid">
+              <label class="wide-field">Edificação
+                <select id="asset-building" required>
+                  <option value="">Pendente — selecione a edificação</option>
+                </select>
+                <small>O ativo só participará dos relatórios da edificação depois desta atribuição.</small>
+              </label>
+              <label class="choice-field">Ambiente <select id="asset-ambiente"></select><input class="new-choice" id="asset-ambiente-new" placeholder="Novo ambiente" /></label>
+              <label class="choice-field">Sistema <select id="asset-sistema"></select><input class="new-choice" id="asset-sistema-new" placeholder="Novo sistema" /></label>
+              <label class="choice-field">Ativo <select id="asset-ativo"></select><input class="new-choice" id="asset-ativo-new" placeholder="Novo ativo" /></label>
+              <label class="choice-field">Componente <select id="asset-componente"></select><input class="new-choice" id="asset-componente-new" placeholder="Novo componente" /></label>
+              <label class="choice-field">Prioridade <select id="asset-prioridade"></select><input class="new-choice" id="asset-prioridade-new" placeholder="Nova prioridade" /></label>
+            </div>
+
+            <label class="photo-field">
+              Galeria do ativo ou ocorrência
+              <input id="asset-foto" accept="image/*" capture="environment" type="file" />
+              <span>Você pode começar com uma imagem agora; a estrutura já fica pronta para múltiplas fotos.</span>
+            </label>
+            <img id="photo-preview" class="photo-preview" alt="" />
+          </section>
+
+          <section class="panel asset-editor-panel">
+            <div class="asset-section-heading">
+              <div>
+                <p class="eyebrow">Comissionamento</p>
+                <h3>Ciclo de vida</h3>
+              </div>
+              <span>Instalação, valor, duração e regra de renovação.</span>
+            </div>
+            <div class="form-grid">
+              <label>Data de instalação <input id="asset-instalacao" type="date" /></label>
+              <label>Valor do ativo <span class="money-input"><span>R$</span><input id="asset-valor" inputmode="decimal" placeholder="0,00" type="text" /></span></label>
+              <label>Expectativa de vida (anos) <input id="asset-vida" min="1" type="number" /></label>
+              <fieldset class="life-end-field">
+                <legend>Ao fim da vida</legend>
+                <label><input id="asset-renovar" name="asset-fim-vida" type="radio" value="renovar" checked /> Renovar</label>
+                <label><input id="asset-encerrar" name="asset-fim-vida" type="radio" value="encerrar" /> Encerrar</label>
+              </fieldset>
+              <label>Total de ciclos <input id="asset-ciclos" min="1" type="number" value="1" /></label>
+            </div>
+          </section>
+
+          <section class="panel asset-editor-panel maintenance-plan-section">
+            <div class="asset-section-heading">
+              <div>
+                <p class="eyebrow">Programação</p>
+                <h3>Plano de manutenção</h3>
+              </div>
+              <span>Etapas preventivas recorrentes e ocorrências corretivas em ordem de data.</span>
+            </div>
+
+            <div class="maintenance-list-heading">
+              <strong>Ações do plano</strong>
+              <span>Nome e tipo · periodicidade · valor</span>
+            </div>
+            <div id="asset-maintenance-plan-list" class="asset-maintenance-plan-list">
+              Nenhuma ação cadastrada no plano.
+            </div>
+
+            <div class="maintenance-add-row">
+              <button class="ghost-button compact-add-action" id="show-maintenance-action-form" type="button">Incluir ação</button>
+              <small>As inclusões são gravadas ao salvar o ativo.</small>
+            </div>
+
+            <div id="maintenance-action-form" class="maintenance-action-form" hidden>
+              <div class="compact-form-heading">
+                <strong id="maintenance-action-form-title">Nova ação</strong>
+                <button class="icon-button compact-close" id="cancel-maintenance-action" type="button" aria-label="Fechar">×</button>
+              </div>
+              <input id="maintenance-action-edit-group" type="hidden" />
+              <div class="compact-form-grid">
+                <label class="wide-field">Nome da ação
+                  <input id="maintenance-action-name" placeholder="Ex.: Limpeza dos filtros" />
+                </label>
+                <label>Tipo
+                  <select id="maintenance-action-type">
+                    <option value="preventiva">Preventiva recorrente</option>
+                    <option value="corretiva">Corretiva</option>
+                  </select>
+                </label>
+                <label>Data
+                  <input id="maintenance-action-date" type="date" />
+                </label>
+                <label class="recurrence-field">Frequência (meses)
+                  <input id="maintenance-action-frequency" min="1" type="number" />
+                </label>
+                <label>Valor
+                  <span class="money-input"><span>R$</span><input id="maintenance-action-cost" inputmode="decimal" placeholder="0,00" type="text" /></span>
+                </label>
+                <label>Responsável
+                  <input id="maintenance-action-responsible" placeholder="Opcional" />
+                </label>
+                <label class="corrective-field">Situação
+                  <select id="maintenance-action-status">
+                    <option value="realizada">Realizada</option>
+                    <option value="prevista">Prevista</option>
+                  </select>
+                </label>
+              </div>
+              <div class="compact-form-actions">
+                <button class="ghost-button" id="clear-maintenance-action" type="button">Limpar</button>
+                <button class="primary-button" id="add-maintenance-action" type="button">Adicionar ao plano</button>
+              </div>
+            </div>
+
+            <div class="maintenance-program-heading">
+              <div>
+                <strong>Programação</strong>
+                <span>Instâncias das ações em ordem cronológica</span>
+              </div>
+              <span>Nome e tipo · data · valor</span>
+            </div>
+            <div id="asset-maintenance-actions" class="asset-maintenance-actions">
+              Nenhuma ação programada.
+            </div>
+
+            <div class="legacy-maintenance-fields" hidden aria-hidden="true">
+              <label class="choice-field">Ação <select id="asset-acao"></select><input class="new-choice" id="asset-acao-new" /></label>
+              <select id="asset-maintenance-type"><option value="preventiva">Preventiva</option><option value="corretiva">Corretiva</option></select>
+              <input id="asset-periodicidade" type="number" />
+              <input id="asset-custo" type="text" />
+              <input id="asset-ultima" type="date" />
+              <label class="choice-field">Responsável <select id="asset-responsavel"></select><input class="new-choice" id="asset-responsavel-new" /></label>
+            </div>
+          </section>
+
+          <section class="asset-summary" id="asset-summary">
+            Preencha data de instalação, vida útil, periodicidade e custos para ver o resumo financeiro.
+          </section>
+
+          <menu class="dialog-actions editor-actions">
+            <button class="danger-button" id="delete-asset" type="button">Excluir ativo</button>
+            <button class="ghost-button" id="cancel-asset-edit" type="button">Cancelar</button>
+            <button class="primary-button" id="save-asset" type="button">Salvar</button>
+          </menu>
+        </form>
       </section>
 
       <section class="view" id="timeline-view">
@@ -344,7 +505,7 @@
         <div class="dialog-header">
           <div>
             <p class="eyebrow">Árvore da edificação</p>
-            <h2 id="location-dialog-title">Nova localização</h2>
+            <h2 id="location-dialog-title">Novo ambiente</h2>
           </div>
           <button class="icon-button" value="cancel" type="submit" aria-label="Fechar">×</button>
         </div>
@@ -363,7 +524,7 @@
               <option value="area_externa">Área externa</option>
             </select>
           </label>
-          <label>Localização superior <select id="location-parent"></select></label>
+          <label>Ambiente superior <select id="location-parent"></select></label>
         </div>
         <menu class="dialog-actions">
           <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
@@ -393,66 +554,25 @@
       </form>
     </dialog>
 
-    <dialog id="asset-dialog">
-      <form method="dialog" id="asset-form">
+    <dialog id="asset-summary-dialog">
+      <form method="dialog" class="asset-summary-dialog-form">
         <div class="dialog-header">
           <div>
-            <p class="eyebrow">Cadastro</p>
-            <h2 id="dialog-title">Novo ativo</h2>
+            <p class="eyebrow">Resumo do ativo</p>
+            <h2 id="asset-summary-title">Ativo</h2>
           </div>
           <button class="icon-button" value="cancel" type="submit" aria-label="Fechar">×</button>
         </div>
-
-        <input id="asset-id" type="hidden" />
-        <div class="form-grid">
-          <label class="wide-field">Edificação
-            <select id="asset-building" required>
-              <option value="">Pendente — selecione a edificação</option>
-            </select>
-            <small>O ativo só participará dos relatórios da edificação depois desta atribuição.</small>
-          </label>
-          <label class="choice-field">Ambiente <select id="asset-ambiente"></select><input class="new-choice" id="asset-ambiente-new" placeholder="Novo ambiente" /></label>
-          <label class="choice-field">Sistema <select id="asset-sistema"></select><input class="new-choice" id="asset-sistema-new" placeholder="Novo sistema" /></label>
-          <label class="choice-field">Ativo <select id="asset-ativo"></select><input class="new-choice" id="asset-ativo-new" placeholder="Novo ativo" /></label>
-          <label class="choice-field">Componente <select id="asset-componente"></select><input class="new-choice" id="asset-componente-new" placeholder="Novo componente" /></label>
-          <label class="choice-field">Ação prevista <select id="asset-acao"></select><input class="new-choice" id="asset-acao-new" placeholder="Nova ação prevista" /></label>
-          <label>Periodicidade (meses) <input id="asset-periodicidade" min="1" type="number" /></label>
-          <label>Última manutenção <input id="asset-ultima" type="date" /></label>
-          <label>Custo unitário <span class="money-input"><span>R$</span><input id="asset-custo" inputmode="decimal" placeholder="0,00" type="text" /></span></label>
-          <label>Data de instalação <input id="asset-instalacao" type="date" /></label>
-          <label>Expectativa de vida (anos) <input id="asset-vida" min="1" type="number" /></label>
-          <label>Valor do ativo <span class="money-input"><span>R$</span><input id="asset-valor" inputmode="decimal" placeholder="0,00" type="text" /></span></label>
-          <fieldset class="life-end-field">
-            <legend>Ao fim da vida</legend>
-            <label><input id="asset-renovar" name="asset-fim-vida" type="radio" value="renovar" checked /> Renovar</label>
-            <label><input id="asset-encerrar" name="asset-fim-vida" type="radio" value="encerrar" /> Encerrar</label>
-          </fieldset>
-          <label>Total de ciclos <input id="asset-ciclos" min="1" type="number" value="1" /></label>
-          <label class="choice-field">Prioridade <select id="asset-prioridade"></select><input class="new-choice" id="asset-prioridade-new" placeholder="Nova prioridade" /></label>
-          <label class="choice-field">Responsável <select id="asset-responsavel"></select><input class="new-choice" id="asset-responsavel-new" placeholder="Novo responsável" /></label>
-        </div>
-
-        <section class="asset-summary" id="asset-summary">
-          Preencha data de instalação, vida útil, periodicidade e custos para ver o resumo.
-        </section>
-
-        <label class="photo-field">
-          Foto do ativo ou ocorrência
-          <input id="asset-foto" accept="image/*" capture="environment" type="file" />
-          <span>Use a câmera do celular ou selecione uma imagem.</span>
-        </label>
-        <img id="photo-preview" class="photo-preview" alt="" />
-
+        <div id="asset-summary-dialog-body" class="asset-summary-dialog-body"></div>
         <menu class="dialog-actions">
-          <button class="danger-button" id="delete-asset" type="button">Excluir ativo</button>
-          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
-          <button class="primary-button" id="save-asset" value="default" type="button">Salvar</button>
+          <button class="ghost-button" value="cancel" type="submit">Fechar</button>
+          <button class="primary-button" id="asset-summary-edit" type="button">Editar</button>
         </menu>
       </form>
     </dialog>
 
     <script src="./supabase-config.js?v=20260610-1"></script>
     <script src="./data/seed-data.js?v=20260610-1"></script>
-    <script src="./app.js?v=20260611-7"></script>
+    <script src="./app.js?v=20260612-6"></script>
   </body>
 </html>

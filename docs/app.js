@@ -100,6 +100,7 @@ const normativeSystems = [
 
 let state = loadState();
 let editingPhoto = "";
+let editingMaintenanceActions = [];
 let focusedAssetId = "";
 let calendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let timelineCalendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -182,8 +183,8 @@ function setAuthMode(mode) {
     ? "Crie sua conta"
     : "Acesse suas edificações";
   document.querySelector(".auth-intro").textContent = signup
-    ? "Cadastre-se para criar seus próprios modelos, edificações, localizações e sistemas."
-    : "Entre para consultar modelos, localizações, sistemas e o planejamento de cada edificação.";
+    ? "Cadastre-se para criar seus próprios modelos, edificações, ambientes e sistemas."
+    : "Entre para consultar modelos, ambientes, sistemas e o planejamento de cada edificação.";
   document.querySelector("#login-submit").textContent = signup ? "Criar conta" : "Entrar";
   document.querySelector("#auth-mode-toggle").textContent = signup
     ? "Já tenho uma conta"
@@ -307,10 +308,21 @@ async function loadBuildingData() {
 function mapDatabaseAsset(asset, plansByAsset) {
   const location = buildingData.locations.find((item) => item.id === asset.location_id);
   const system = buildingData.systems.find((item) => item.id === asset.system_id);
+  const plan = plansByAsset.get(asset.id);
+  const gallery = Array.isArray(asset.properties?.galeria)
+    ? asset.properties.galeria
+    : (asset.photo_path ? [{ url: asset.photo_path, legenda: "" }] : []);
+  const proximaManutencao = asset.next_maintenance_date || nextDate(
+    asset.last_maintenance_date || asset.installation_date || "",
+    Number(asset.periodicity_months || 0),
+  );
   return {
     id: asset.external_code,
     dbId: asset.id,
-    planDbId: plansByAsset.get(asset.id)?.id || "",
+    planDbId: plan?.id || "",
+    tipoManutencao: plan?.maintenance_type || "preventiva",
+    planoAtivo: plan?.active !== false,
+    planoDataInicio: plan?.start_date || "",
     technicalBuildingId: asset.building_id,
     buildingId: asset.properties?.building_assignment_pending === false ? asset.building_id : "",
     buildingAssignmentPending: asset.properties?.building_assignment_pending !== false,
@@ -328,7 +340,7 @@ function mapDatabaseAsset(asset, plansByAsset) {
     unidade: asset.unit || "",
     periodicidadeMeses: Number(asset.periodicity_months || 0),
     ultimaManutencao: asset.last_maintenance_date || "",
-    proximaManutencao: asset.next_maintenance_date || "",
+    proximaManutencao,
     custoUnitario: Number(asset.estimated_unit_cost || 0),
     custoTotal: Number(asset.estimated_total_cost || 0),
     dataInstalacao: asset.installation_date || "",
@@ -341,7 +353,8 @@ function mapDatabaseAsset(asset, plansByAsset) {
     status: asset.status || "",
     responsavel: asset.responsible || "",
     observacoes: asset.notes || "",
-    foto: asset.photo_path || "",
+    foto: gallery[0]?.url || asset.photo_path || "",
+    galeria: gallery,
   };
 }
 
@@ -358,11 +371,16 @@ function mapDatabaseEvent(event, externalCodeByAsset) {
     ambiente: event.properties?.environment || "",
     ativo: event.properties?.asset_name || "",
     acao: event.properties?.action || "",
+    responsavel: event.properties?.responsible || "",
     custo: Number(event.estimated_cost || 0),
     custoReal: event.actual_cost === null ? null : Number(event.actual_cost),
     status: event.status || "programado",
     prioridade: event.properties?.priority || "",
     tipo: event.event_type === "substituicao" ? "Substitui\u00e7\u00e3o" : "Manuten\u00e7\u00e3o",
+    tipoManutencao: event.properties?.maintenance_type || "preventiva",
+    periodicidadeMeses: Number(event.properties?.recurrence_months || 0),
+    manualEntry: event.properties?.manual_entry === true,
+    recurrenceGroup: event.properties?.recurrence_group || "",
     ciclo: Number(event.cycle_number || 1),
     provisionStart: event.provision_start_date || "",
     realizada: event.completed === null ? undefined : event.completed,
@@ -567,7 +585,7 @@ function locationTypeLabel(type) {
     area_comum: "Área comum",
     area_tecnica: "Área técnica",
     area_externa: "Área externa",
-  }[type] || type || "Localização";
+  }[type] || type || "Ambiente";
 }
 
 function locationTreeHtml(buildingId, parentId = null) {
@@ -594,7 +612,7 @@ function renderBuildings() {
   if (!buildingData.buildings.length) {
     container.innerHTML = `<div class="empty-state empty-state-large">
       <strong>Nenhuma edificação cadastrada</strong>
-      <span>Crie a primeira edificação e depois monte sua árvore de localizações.</span>
+      <span>Crie a primeira edificação e depois monte sua árvore de ambientes.</span>
     </div>`;
     return;
   }
@@ -614,13 +632,13 @@ function renderBuildings() {
           <p class="building-time-summary">Tempo: ${formatDate(timeStart)} a ${formatDate(timeEnd)} · Supervisão: ${formatDate(supervisionStart)} · ${buildingHorizonYears(building.id)} anos</p>
         </div>
         <span class="building-code">${escapeHtml(building.reference_code)}</span>
-        <span>${locations.length} localizações · ${systems.length} sistemas</span>
+        <span>${locations.length} ambientes · ${systems.length} sistemas</span>
         <button class="ghost-button edit-building" data-building-id="${building.id}" type="button">Editar</button>
       </summary>
       <div class="building-body">
         <div class="building-body-header">
-          <div><strong>Localizações e ambientes</strong></div>
-          <button class="ghost-button add-location" data-building-id="${building.id}" type="button">Adicionar localização</button>
+          <div><strong>Ambientes e subambientes</strong></div>
+          <button class="ghost-button add-location" data-building-id="${building.id}" type="button">Adicionar ambiente</button>
         </div>
         ${locationTreeHtml(building.id) || `<div class="empty-state">A árvore ainda está vazia.</div>`}
       </div>
@@ -773,10 +791,10 @@ async function saveLocationRecord() {
     openBuildingIds.add(buildingId);
     document.querySelector("#location-dialog").close();
     document.querySelector("#location-form").reset();
-    setDataMessage("buildings-message", locationId ? "Localização atualizada." : "Localização adicionada.", "success");
+    setDataMessage("buildings-message", locationId ? "Ambiente atualizado." : "Ambiente adicionado.", "success");
     await loadBuildingData();
   } catch {
-    setDataMessage("buildings-message", "Não foi possível salvar a localização. Verifique se já existe outra com o mesmo nome nesse nível.");
+    setDataMessage("buildings-message", "Não foi possível salvar o ambiente. Verifique se já existe outro com o mesmo nome nesse nível.");
   }
 }
 
@@ -800,7 +818,7 @@ function openLocationDialog(buildingId, location = null) {
   document.querySelector("#location-form").reset();
   document.querySelector("#location-id").value = location?.id || "";
   document.querySelector("#location-building-id").value = buildingId;
-  document.querySelector("#location-dialog-title").textContent = location ? "Editar localização" : "Nova localização";
+  document.querySelector("#location-dialog-title").textContent = location ? "Editar ambiente" : "Novo ambiente";
   document.querySelector("#save-location").textContent = location ? "Salvar alterações" : "Adicionar";
   document.querySelector("#location-name").value = location?.name || "";
   document.querySelector("#location-type").value = location?.location_type || "ambiente";
@@ -951,9 +969,9 @@ function statusFor(dateValue) {
   return "Programado";
 }
 
-function nextDate(lastDate, months) {
-  if (!lastDate || !months) return "";
-  const date = new Date(`${lastDate}T00:00:00`);
+function nextDate(baseDate, months) {
+  if (!baseDate || !months) return "";
+  const date = new Date(`${baseDate}T00:00:00`);
   date.setMonth(date.getMonth() + Number(months));
   return date.toISOString().slice(0, 10);
 }
@@ -1238,6 +1256,7 @@ function calendarEventCategory(event, dateKey, todayKey) {
 }
 
 function eventScheduleKey(event) {
+  if (event.externalEventKey) return event.externalEventKey;
   const normalizedType = String(event.tipo || "").startsWith("Substit") ? "replacement" : "maintenance";
   return `${event.assetId || ""}|${dateInputValue(event.data)}|${normalizedType}|${event.ciclo || 1}`;
 }
@@ -1821,7 +1840,7 @@ function setupAssetScopeChoices(buildingId, selectedLocationId = "", selectedSys
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
   locationSelect.innerHTML = [
-    `<option value="">Selecionar localização</option>`,
+    `<option value="">Selecionar ambiente</option>`,
     ...locations.map((location) =>
       `<option value="${location.id}">${escapeHtml(location.name)} · ${escapeHtml(locationTypeLabel(location.location_type))}</option>`),
   ].join("");
@@ -1860,12 +1879,30 @@ function assetCostSummary(asset) {
   const renew = (asset.fimVida || "renovar") === "renovar";
   const maintenanceCountPerCycle = lifeYears && periodicityMonths ? Math.floor((lifeYears * 12) / periodicityMonths) : 0;
   const maintenancePerCycle = maintenanceCountPerCycle * maintenanceCost;
-  const monthlyMaintenance = periodicityMonths ? maintenanceCost / periodicityMonths : 0;
+  const assetMaintenanceEvents = state.recurrenceEvents.filter((event) =>
+    event.assetId === asset.id &&
+    event.tipoManutencao === "preventiva" &&
+    !String(event.tipo || "").startsWith("Substit")
+  );
+  const ruleGroups = new Map();
+  assetMaintenanceEvents.forEach((event) => {
+    const key = event.recurrenceGroup || `${event.acao}|${event.periodicidadeMeses || periodicityMonths}`;
+    if (!ruleGroups.has(key)) ruleGroups.set(key, event);
+  });
+  const monthlyMaintenance = ruleGroups.size
+    ? [...ruleGroups.values()].reduce((total, rule) => {
+        const months = Number(rule.periodicidadeMeses || periodicityMonths || 0);
+        return total + (months ? Number(rule.custo || 0) / months : 0);
+      }, 0)
+    : periodicityMonths ? maintenanceCost / periodicityMonths : 0;
   const replacementCount = lifeYears && assetValue ? (renew ? totalCycles : Math.max(0, totalCycles - 1)) : 0;
   const replacementPerCycle = assetValue;
   const monthlyReplacement = lifeYears && assetValue && replacementCount ? assetValue / (lifeYears * 12) : 0;
   const monthlyFullCycle = monthlyMaintenance + monthlyReplacement;
-  const totalPeriod = maintenancePerCycle * totalCycles + replacementPerCycle * replacementCount;
+  const maintenancePeriodTotal = assetMaintenanceEvents.length
+    ? assetMaintenanceEvents.reduce((total, event) => total + Number(event.custo || 0), 0)
+    : maintenancePerCycle * totalCycles;
+  const totalPeriod = maintenancePeriodTotal + replacementPerCycle * replacementCount;
   const installationDate = safeDate(asset.dataInstalacao);
   const initialYear = installationDate ? installationDate.getFullYear() : null;
   const finalYear = installationDate && lifeYears ? addYears(installationDate, lifeYears * totalCycles).getFullYear() : null;
@@ -1907,7 +1944,7 @@ function renderAssets() {
       const assetBuilding = asset.buildingAssignmentPending
         ? `<span class="badge vencido">Edificação pendente</span>`
         : `<span class="badge programado">${escapeHtml(buildingName(asset.buildingId))}</span>`;
-      return `<article class="asset-card ${focusedAssetId === asset.id ? "is-focused" : ""}">
+      return `<article class="asset-card ${focusedAssetId === asset.id ? "is-focused" : ""}" data-id="${asset.id}">
         <div class="thumb">${image}</div>
         <div class="asset-card-content">
           <strong>${asset.ativo || "Ativo sem nome"}</strong>
@@ -2128,7 +2165,8 @@ function showExecutionDetail(row, month, events, persist = false) {
 }
 
 function activateView(view) {
-  document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
+  document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("active",
+    item.dataset.view === view || (view === "asset-editor" && item.dataset.view === "assets")));
   document.querySelectorAll(".view").forEach((item) => item.classList.toggle("active", item.id === `${view}-view`));
   if (view === "buildings") renderBuildings();
   if (view === "systems") renderSystemsView();
@@ -2146,16 +2184,78 @@ function goToAsset(assetId) {
   document.querySelector("#system-filter").value = "";
   renderAssets();
   document.querySelector(`[data-id="${asset.id}"]`)?.closest(".asset-card")?.scrollIntoView({ behavior: "smooth", block: "center" });
-  openDialog(asset);
+  openAssetSummary(asset);
+}
+
+function closeAssetEditor() {
+  activateView("assets");
+}
+
+function assetSummaryDialogHtml(asset) {
+  const costs = assetCostSummary(asset);
+  const building = asset.buildingAssignmentPending ? "Edificação pendente" : buildingName(asset.buildingId);
+  const photo = asset.foto ? `<img src="${asset.foto}" alt="Foto de ${asset.ativo || "ativo"}" />` : "<span>Sem imagem</span>";
+  return `<div class="asset-summary-hero">
+    <div class="thumb asset-summary-thumb">${photo}</div>
+    <div class="asset-summary-main">
+      <strong>${escapeHtml(asset.ativo || "Ativo sem nome")}</strong>
+      <div class="meta">${escapeHtml(asset.sistema || "Sistema não informado")} · ${escapeHtml(asset.ambiente || "Ambiente não informado")} · ${escapeHtml(asset.acao || "Sem ação definida")}</div>
+      <div class="summary-badges">
+        <span class="badge programado">${escapeHtml(building)}</span>
+        <span class="badge ${statusFor(asset.proximaManutencao).toLowerCase().includes("vencido") ? "vencido" : "programado"}">${escapeHtml(statusFor(asset.proximaManutencao))}</span>
+      </div>
+    </div>
+  </div>
+  <div class="summary-grid asset-summary-grid">
+    <div class="summary-kpi"><span>Ano inicial</span><strong>${costs.initialYear || "Não informado"}</strong></div>
+    <div class="summary-kpi"><span>Ano final</span><strong>${costs.finalYear || "Não calculado"}</strong></div>
+    <div class="summary-kpi"><span>Última manutenção</span><strong>${asset.ultimaManutencao ? formatDate(asset.ultimaManutencao) : "Não informada"}</strong></div>
+    <div class="summary-kpi"><span>Próxima manutenção</span><strong>${asset.proximaManutencao ? formatDate(asset.proximaManutencao) : "Não calculada"}</strong></div>
+    <div class="summary-kpi"><span>Expectativa de vida</span><strong>${costs.lifeYears ? `${costs.lifeYears} anos` : "Não informada"}</strong></div>
+    <div class="summary-kpi"><span>Total de ciclos</span><strong>${costs.totalCycles}</strong></div>
+    <div class="summary-kpi"><span>Plano de manutenção</span><strong>${escapeHtml(asset.acao || "Não definido")}</strong></div>
+    <div class="summary-kpi"><span>Tipo do plano</span><strong>${asset.tipoManutencao === "corretiva" ? "Corretiva" : "Preventiva"}</strong></div>
+    <div class="summary-kpi"><span>Periodicidade</span><strong>${asset.periodicidadeMeses ? `${asset.periodicidadeMeses} meses` : "Não informada"}</strong></div>
+    <div class="summary-kpi"><span>Provisionamento mensal</span><strong>${costs.lifeYears ? money.format(costs.monthlyFullCycle) : "Não calculado"}</strong></div>
+    <div class="summary-kpi"><span>Custo total no período</span><strong>${costs.lifeYears ? money.format(costs.totalPeriod) : "Não calculado"}</strong></div>
+    <div class="summary-kpi"><span>Fim da vida</span><strong>${asset.fimVida === "renovar" ? "Renovar" : "Encerrar"}</strong></div>
+  </div>`;
+}
+
+function openAssetSummary(asset) {
+  if (!asset) return;
+  const dialog = document.querySelector("#asset-summary-dialog");
+  document.querySelector("#asset-summary-title").textContent = asset.ativo || "Ativo sem nome";
+  document.querySelector("#asset-summary-dialog-body").innerHTML = assetSummaryDialogHtml(asset);
+  dialog.dataset.assetId = asset.id;
+  dialog.showModal();
 }
 
 function openDialog(asset) {
+  const summaryDialog = document.querySelector("#asset-summary-dialog");
+  if (summaryDialog.open) summaryDialog.close();
   const isEditing = Boolean(asset);
+  activateView("asset-editor");
   document.querySelector("#dialog-title").textContent = isEditing ? "Editar ativo" : "Novo ativo";
   document.querySelector("#delete-asset").style.display = isEditing ? "inline-block" : "none";
   const data = asset || {};
+  const editorAssetId = data.id || `ATIVO-${Date.now()}`;
   editingPhoto = data.foto || "";
-  document.querySelector("#asset-id").value = data.id || "";
+  document.querySelector("#asset-id").value = editorAssetId;
+  editingMaintenanceActions = state.recurrenceEvents
+    .filter((event) => event.assetId === data.id)
+    .map((event) => ({
+      ...event,
+      periodicidadeMeses: event.periodicidadeMeses || (event.tipoManutencao === "preventiva" ? data.periodicidadeMeses : 0),
+      responsavel: event.responsavel || data.responsavel || "",
+      recurrenceGroup: event.recurrenceGroup || (
+        String(event.tipo || "").startsWith("Substit")
+          ? `substituicao:${event.ciclo || 1}`
+          : event.tipoManutencao === "corretiva"
+            ? `corretiva:${event.externalEventKey || event.data}`
+            : `preventiva:${event.acao || data.acao || "manutencao"}:${event.periodicidadeMeses || data.periodicidadeMeses || 0}`
+      ),
+    }));
   const buildingSelect = document.querySelector("#asset-building");
   buildingSelect.innerHTML = [
     `<option value="">Pendente — selecione a edificação</option>`,
@@ -2166,6 +2266,7 @@ function openDialog(asset) {
   setupChoice("ativo", data.ativo || "");
   setupChoice("componente", data.componente || "");
   setupChoice("acao", data.acao || "");
+  document.querySelector("#asset-maintenance-type").value = data.tipoManutencao || "preventiva";
   document.querySelector("#asset-periodicidade").value = data.periodicidadeMeses || "";
   document.querySelector("#asset-ultima").value = dateInputValue(data.ultimaManutencao || "");
   document.querySelector("#asset-custo").value = data.custoUnitario !== "" && data.custoUnitario !== undefined
@@ -2180,21 +2281,309 @@ function openDialog(asset) {
   updateCycleLimit(data.totalCiclos || 1);
   setupChoice("prioridade", data.prioridade || "");
   setupChoice("responsavel", data.responsavel || "");
+  resetMaintenanceActionForm();
   renderAssetSummary();
+  renderMaintenancePlanList();
+  renderMaintenanceActionList();
   renderPhotoPreview();
-  document.querySelector("#asset-dialog").showModal();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function maintenanceActionLimitDate() {
+  const installationDate = safeDate(document.querySelector("#asset-instalacao").value);
+  const lifeYears = Number(document.querySelector("#asset-vida").value || 0);
+  const cycles = Number(document.querySelector("#asset-ciclos").value || 1);
+  if (installationDate && lifeYears) return addYears(installationDate, lifeYears * Math.max(1, cycles));
+  const buildingId = document.querySelector("#asset-building").value;
+  return buildingId ? buildingTimeEnd(buildingId) : addYears(new Date(), 50);
+}
+
+function resetMaintenanceActionForm() {
+  document.querySelector("#maintenance-action-edit-group").value = "";
+  document.querySelector("#maintenance-action-form-title").textContent = "Nova ação";
+  document.querySelector("#add-maintenance-action").textContent = "Adicionar ao plano";
+  document.querySelector("#maintenance-action-name").value = "";
+  document.querySelector("#maintenance-action-type").value = "preventiva";
+  document.querySelector("#maintenance-action-date").value = "";
+  document.querySelector("#maintenance-action-frequency").value = "";
+  document.querySelector("#maintenance-action-cost").value = "";
+  document.querySelector("#maintenance-action-responsible").value = "";
+  document.querySelector("#maintenance-action-status").value = "realizada";
+  updateMaintenanceActionFormMode();
+}
+
+function maintenancePlanRules() {
+  const groups = new Map();
+  editingMaintenanceActions
+    .filter((event) => !String(event.tipo || "").startsWith("Substit"))
+    .sort(byDate)
+    .forEach((event) => {
+      const group = event.recurrenceGroup || eventScheduleKey(event);
+      if (!groups.has(group)) groups.set(group, { ...event, recurrenceGroup: group });
+    });
+  return [...groups.values()].sort((a, b) =>
+    String(a.acao || "").localeCompare(String(b.acao || ""), "pt-BR") || byDate(a, b)
+  );
+}
+
+function renderMaintenancePlanList() {
+  const container = document.querySelector("#asset-maintenance-plan-list");
+  const rules = maintenancePlanRules();
+  container.innerHTML = rules.length
+    ? rules.map((rule, index) => {
+        const corrective = rule.tipoManutencao === "corretiva";
+        const periodicity = corrective
+          ? "Pontual"
+          : `${Number(rule.periodicidadeMeses || 0)} ${Number(rule.periodicidadeMeses || 0) === 1 ? "mês" : "meses"}`;
+        return `<div class="maintenance-plan-row ${corrective ? "corrective" : "preventive"}">
+          <span class="maintenance-plan-number">${index + 1}.</span>
+          <div class="maintenance-plan-name">
+            <strong>${escapeHtml(rule.acao || "Manutenção")}</strong>
+            <span>${corrective ? "Corretiva" : "Preventiva recorrente"}</span>
+          </div>
+          <strong class="maintenance-plan-period">${periodicity}</strong>
+          <strong class="maintenance-plan-cost">${money.format(rule.custo || 0)}</strong>
+          <div class="maintenance-plan-actions">
+            <button class="ghost-button edit-maintenance-rule" data-group="${escapeHtml(rule.recurrenceGroup)}" type="button">Editar</button>
+            <button class="maintenance-rule-remove" data-group="${escapeHtml(rule.recurrenceGroup)}" type="button">Excluir</button>
+          </div>
+        </div>`;
+      }).join("")
+    : `<div class="empty-state compact-empty">Nenhuma ação cadastrada no plano.</div>`;
+}
+
+function editMaintenanceRule(group) {
+  const rule = maintenancePlanRules().find((item) => item.recurrenceGroup === group);
+  if (!rule) return;
+  document.querySelector("#maintenance-action-edit-group").value = group;
+  document.querySelector("#maintenance-action-form-title").textContent = "Editar ação";
+  document.querySelector("#add-maintenance-action").textContent = "Refazer programação";
+  document.querySelector("#maintenance-action-name").value = rule.acao || "";
+  document.querySelector("#maintenance-action-type").value = rule.tipoManutencao || "preventiva";
+  document.querySelector("#maintenance-action-date").value = dateInputValue(rule.data);
+  document.querySelector("#maintenance-action-frequency").value = rule.periodicidadeMeses || "";
+  document.querySelector("#maintenance-action-cost").value = formatCurrencyInput(Number(rule.custo || 0));
+  document.querySelector("#maintenance-action-responsible").value = rule.responsavel || "";
+  document.querySelector("#maintenance-action-status").value = rule.realizada === true ? "realizada" : "prevista";
+  updateMaintenanceActionFormMode();
+  document.querySelector("#maintenance-action-form").hidden = false;
+  document.querySelector("#maintenance-action-name").focus();
+}
+
+function updateMaintenanceActionFormMode() {
+  const corrective = document.querySelector("#maintenance-action-type").value === "corretiva";
+  document.querySelector("#maintenance-action-form").classList.toggle("is-corrective", corrective);
+  document.querySelector("#maintenance-action-frequency").required = !corrective;
+}
+
+function syncLegacyPlanFromActions() {
+  const preventiveActions = editingMaintenanceActions
+    .filter((event) => event.tipoManutencao === "preventiva")
+    .sort(byDate);
+  const preventive = preventiveActions.find((event) => event.periodicidadeMeses) || preventiveActions[0];
+  if (!preventive) {
+    setupChoice("acao", "");
+    document.querySelector("#asset-maintenance-type").value = "preventiva";
+    document.querySelector("#asset-periodicidade").value = "";
+    document.querySelector("#asset-custo").value = "";
+    setupChoice("responsavel", "");
+    return;
+  }
+  setupChoice("acao", preventive.acao || "");
+  document.querySelector("#asset-maintenance-type").value = "preventiva";
+  document.querySelector("#asset-periodicidade").value = preventive.periodicidadeMeses || "";
+  document.querySelector("#asset-custo").value = formatCurrencyInput(Number(preventive.custo || 0));
+  setupChoice("responsavel", preventive.responsavel || "");
+}
+
+function renderMaintenanceActionList() {
+  const container = document.querySelector("#asset-maintenance-actions");
+  const todayKey = calendarDateKey(new Date());
+  const actions = editingMaintenanceActions
+    .filter((event) => !String(event.tipo || "").startsWith("Substit"))
+    .sort(byDate);
+  container.innerHTML = actions.length
+    ? actions.map((event) => {
+        const corrective = event.tipoManutencao === "corretiva";
+        const typeLabel = corrective ? "Corretiva" : "Preventiva";
+        const typeClass = corrective ? "corrective" : "preventive";
+        const eventDate = dateInputValue(event.data);
+        const completed = isEventCompleted(event);
+        const timeClass = eventDate > todayKey
+          ? "is-future"
+          : eventDate === todayKey
+            ? "is-today"
+            : completed ? "is-past-completed" : "is-past-missed";
+        const checkDisabled = eventDate > todayKey ? "disabled" : "";
+        const statusLabel = completed ? "Realizada" : eventDate > todayKey ? "Futura" : eventDate === todayKey ? "Hoje" : "Não realizada";
+        const completionControl = corrective
+          ? `<span class="maintenance-action-status-mark ${completed ? "is-completed" : ""}" aria-label="${statusLabel}">${completed ? "✓" : "•"}</span>`
+          : `<input class="maintenance-action-check" type="checkbox" data-event-key="${escapeHtml(eventScheduleKey(event))}" ${completed ? "checked" : ""} ${checkDisabled} aria-label="Marcar ${escapeHtml(event.acao || "manutenção")} como realizada" />`;
+        return `<label class="maintenance-action-row ${typeClass} ${timeClass}">
+          ${completionControl}
+          <div class="maintenance-action-name">
+            <strong>${escapeHtml(event.acao || "Manutenção")}</strong>
+            <span>${typeLabel} · ${statusLabel}</span>
+          </div>
+          <time>${formatDate(event.data)}</time>
+          <strong class="maintenance-action-cost">${money.format(event.custo || 0)}</strong>
+        </label>`;
+      }).join("")
+    : `<div class="empty-state compact-empty">Nenhuma ação cadastrada.</div>`;
+}
+
+async function updateMaintenanceActionCompletion(checkbox) {
+  const event = editingMaintenanceActions.find(
+    (item) => eventScheduleKey(item) === checkbox.dataset.eventKey,
+  );
+  if (!event || event.tipoManutencao !== "preventiva") return;
+  const previous = {
+    realizada: event.realizada,
+    status: event.status,
+    dataExecucao: event.dataExecucao,
+  };
+  event.realizada = checkbox.checked;
+  event.status = checkbox.checked ? "Realizada" : statusFor(event.data);
+  event.dataExecucao = checkbox.checked ? calendarDateKey(new Date()) : "";
+
+  try {
+    if (event.dbId) {
+      await supabaseRequest(`/rest/v1/maintenance_events?id=eq.${encodeURIComponent(event.dbId)}`, {
+        method: "PATCH",
+        token: currentSession.access_token,
+        body: {
+          completed: checkbox.checked,
+          status: checkbox.checked ? "cumprido" : "perdido",
+          execution_date: checkbox.checked ? event.dataExecucao : null,
+        },
+      });
+    }
+    const stateEvent = state.recurrenceEvents.find(
+      (item) => eventScheduleKey(item) === checkbox.dataset.eventKey,
+    );
+    if (stateEvent) Object.assign(stateEvent, event);
+    renderMaintenanceActionList();
+    render();
+  } catch {
+    Object.assign(event, previous);
+    checkbox.checked = previous.realizada === true;
+    window.alert("Não foi possível atualizar esta manutenção no Supabase.");
+  }
+}
+
+function addMaintenanceAction() {
+  const assetId = document.querySelector("#asset-id").value;
+  const name = document.querySelector("#maintenance-action-name").value.trim();
+  const type = document.querySelector("#maintenance-action-type").value;
+  const date = document.querySelector("#maintenance-action-date").value;
+  const frequency = Number(document.querySelector("#maintenance-action-frequency").value || 0);
+  const cost = parseCurrencyInput(document.querySelector("#maintenance-action-cost").value);
+  const responsible = document.querySelector("#maintenance-action-responsible").value.trim();
+  const correctiveStatus = document.querySelector("#maintenance-action-status").value;
+  if (!name || !date || (type === "preventiva" && !frequency)) {
+    window.alert("Informe o nome, a data e, para a preventiva, a frequência.");
+    return;
+  }
+
+  const editingGroup = document.querySelector("#maintenance-action-edit-group").value;
+  const group = editingGroup || `acao-${Date.now()}`;
+  const previousGroupEvents = editingGroup
+    ? editingMaintenanceActions.filter((event) => event.recurrenceGroup === editingGroup)
+    : [];
+  if (editingGroup) {
+    editingMaintenanceActions = editingMaintenanceActions.filter(
+      (event) => event.recurrenceGroup !== editingGroup,
+    );
+  }
+  const common = {
+    assetId,
+    acao: name,
+    custo: cost,
+    responsavel: responsible,
+    tipo: "Manutenção",
+    tipoManutencao: type,
+    manualEntry: true,
+    recurrenceGroup: group,
+    ciclo: 1,
+  };
+  if (type === "corretiva") {
+    editingMaintenanceActions.push({
+      ...common,
+      data: date,
+      realizada: correctiveStatus === "realizada",
+      status: correctiveStatus === "realizada" ? "Realizada" : statusFor(date),
+      dataExecucao: correctiveStatus === "realizada" ? date : "",
+      externalEventKey: `${assetId}:${group}:${date}:corretiva`,
+    });
+  } else {
+    const limit = maintenanceActionLimitDate();
+    let cursor = safeDate(date);
+    let sequence = 1;
+    while (cursor && cursor <= limit) {
+      const scheduledDate = dateInputValue(cursor);
+      editingMaintenanceActions.push({
+        ...common,
+        data: scheduledDate,
+        status: statusFor(scheduledDate),
+        periodicidadeMeses: frequency,
+        provisionStart: sequence === 1
+          ? document.querySelector("#asset-instalacao").value || scheduledDate
+          : nextDate(scheduledDate, -frequency),
+        externalEventKey: `${assetId}:${group}:${scheduledDate}:preventiva`,
+      });
+      cursor = safeDate(nextDate(scheduledDate, frequency));
+      sequence += 1;
+    }
+  }
+
+  if (previousGroupEvents.length) {
+    const previousByDate = new Map(previousGroupEvents.map((event) => [dateInputValue(event.data), event]));
+    editingMaintenanceActions = editingMaintenanceActions.map((event) => {
+      if (event.recurrenceGroup !== group) return event;
+      const previous = previousByDate.get(dateInputValue(event.data));
+      if (!previous || previous.realizada === undefined) return event;
+      return {
+        ...event,
+        realizada: previous.realizada,
+        status: previous.status,
+        dataExecucao: previous.dataExecucao || "",
+        custoReal: previous.custoReal,
+      };
+    });
+  }
+
+  syncLegacyPlanFromActions();
+  renderMaintenancePlanList();
+  renderMaintenanceActionList();
+  renderAssetSummary();
+  resetMaintenanceActionForm();
+  document.querySelector("#maintenance-action-form").hidden = true;
 }
 
 function renderAssetSummary() {
   const installationDate = document.querySelector("#asset-instalacao").value;
+  const lastMaintenanceDate = document.querySelector("#asset-ultima").value;
   const lifeYears = Number(document.querySelector("#asset-vida").value || 0);
   const periodicityMonths = Number(document.querySelector("#asset-periodicidade").value || 0);
   const maintenanceCost = parseCurrencyInput(document.querySelector("#asset-custo").value);
   const assetValue = parseCurrencyInput(document.querySelector("#asset-valor").value);
   const endMode = getLifeEndMode();
+  const maintenanceType = document.querySelector("#asset-maintenance-type").value || "preventiva";
+  const maintenanceAction = getChoiceValue("acao");
+  const responsible = getChoiceValue("responsavel");
   const totalCycles = updateCycleLimit(document.querySelector("#asset-ciclos").value || 1);
   const maximumCycles = maxCyclesForLife(lifeYears, document.querySelector("#asset-building").value);
   const effectiveCycles = totalCycles;
+  const todayKey = calendarDateKey(new Date());
+  const nextProgrammedMaintenance = [...editingMaintenanceActions]
+    .filter((event) =>
+      event.tipoManutencao === "preventiva" &&
+      !String(event.tipo || "").startsWith("Substit") &&
+      dateInputValue(event.data) >= todayKey
+    )
+    .sort(byDate)[0];
+  const nextMaintenanceDate = nextProgrammedMaintenance?.data ||
+    nextDate(lastMaintenanceDate || installationDate, periodicityMonths);
   const startDate = safeDate(installationDate);
   const dates = startDate
     ? Array.from({ length: effectiveCycles }, (_, index) => {
@@ -2206,12 +2595,22 @@ function renderAssetSummary() {
       }).flat()
     : [];
   const replacementMonths = lifeYears * 12;
-  const monthlyMaintenance = periodicityMonths ? maintenanceCost / periodicityMonths : 0;
+  const preventiveRules = maintenancePlanRules().filter((rule) => rule.tipoManutencao === "preventiva");
+  const monthlyMaintenance = preventiveRules.length
+    ? preventiveRules.reduce((total, rule) =>
+        total + (Number(rule.periodicidadeMeses || 0) ? Number(rule.custo || 0) / Number(rule.periodicidadeMeses) : 0), 0)
+    : periodicityMonths ? maintenanceCost / periodicityMonths : 0;
   const replacementCount = endMode === "renovar" ? totalCycles : Math.max(0, totalCycles - 1);
   const hasNextCycle = replacementCount > 0;
   const monthlyReplacement = hasNextCycle && replacementMonths ? assetValue / replacementMonths : 0;
   const totalMonthlyProvision = monthlyMaintenance + monthlyReplacement;
-  const totalMaintenanceCost = dates.length * maintenanceCost;
+  const programmedMaintenanceEvents = editingMaintenanceActions.filter(
+    (event) => !String(event.tipo || "").startsWith("Substit"),
+  );
+  const maintenanceCount = programmedMaintenanceEvents.length || dates.length;
+  const totalMaintenanceCost = programmedMaintenanceEvents.length
+    ? programmedMaintenanceEvents.reduce((total, event) => total + Number(event.custo || 0), 0)
+    : dates.length * maintenanceCost;
   const endDate = installationDate && lifeYears ? addYears(safeDate(installationDate), lifeYears).toISOString().slice(0, 10) : "";
   const replacementTotal = replacementCount * assetValue;
   const assetId = document.querySelector("#asset-id").value;
@@ -2220,6 +2619,7 @@ function renderAssetSummary() {
   const maintenanceEvents = dates.map((item) => ({
     assetId,
     data: item.date,
+    tipoManutencao: maintenanceType,
     tipo: "Manutenção",
     ciclo: item.cycle,
     custo: maintenanceCost,
@@ -2239,14 +2639,16 @@ function renderAssetSummary() {
 
   const summary = document.querySelector("#asset-summary");
   if (!installationDate || !lifeYears || !periodicityMonths) {
-    summary.innerHTML = "Preencha data de instalação, vida útil e periodicidade para ver as manutenções previstas.";
+    summary.innerHTML = "Preencha data de instalação, vida útil e periodicidade para ver o resumo financeiro.";
+    renderMaintenanceActionList();
     return;
   }
 
-  summary.innerHTML = `<h3>Resumo de vida útil</h3>
+  summary.innerHTML = `<h3>Resumo financeiro e de vida útil</h3>
     <div class="summary-grid">
+      <div class="summary-kpi"><span>Próxima manutenção</span><strong>${nextMaintenanceDate ? formatDate(nextMaintenanceDate) : "Não calculada"}</strong></div>
       <div class="summary-kpi"><span>Fim da expectativa</span><strong>${formatDate(endDate)}</strong></div>
-      <div class="summary-kpi"><span>Manutenções previstas</span><strong>${dates.length}</strong></div>
+      <div class="summary-kpi"><span>Manutenções previstas</span><strong>${maintenanceCount}</strong></div>
       <div class="summary-kpi"><span>Custo total de manutenção</span><strong>${money.format(totalMaintenanceCost)}</strong></div>
       <div class="summary-kpi"><span>Valor do ativo</span><strong>${money.format(assetValue)}</strong></div>
       <div class="summary-kpi"><span>Provisão mensal manutenção</span><strong>${money.format(monthlyMaintenance)}</strong></div>
@@ -2255,38 +2657,13 @@ function renderAssetSummary() {
       <div class="summary-kpi"><span>Total manutenção + substituição</span><strong>${money.format(totalMaintenanceCost + replacementTotal)}</strong></div>
       <div class="summary-kpi"><span>Ao fim da vida</span><strong>${endMode === "renovar" ? "Renovar" : "Encerrar"}</strong></div>
       <div class="summary-kpi"><span>Ciclos programados</span><strong>${effectiveCycles}${maximumCycles ? ` de ${maximumCycles} máx.` : ""}</strong></div>
-    </div>
-    <div class="schedule-heading">
-      <div>
-        <strong>Manuten\u00e7\u00f5es e trocas previstas</strong>
-        <span>Marque o check quando o servi\u00e7o for realizado.</span>
-      </div>
-      ${assetId ? "" : "<small>Salve o ativo para habilitar os checks.</small>"}
-    </div>
-    <div class="asset-event-checklist">
-      ${scheduleEvents
-        .map((event) => {
-          const completed = isEventCompleted(event);
-          const eventDate = safeDate(event.data);
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          const past = eventDate && eventDate < today;
-          const future = eventDate && eventDate > today;
-          const statusLabel = completed ? "Realizada" : past ? "N\u00e3o realizada" : "Pendente";
-          const typeClass = String(event.tipo).startsWith("Substit") ? "replacement" : "maintenance";
-          return `<label class="asset-event-check ${completed ? "is-completed" : past ? "is-missed" : ""} ${future ? "is-future" : ""}">
-            <input type="checkbox" data-event-key="${eventScheduleKey(event)}" ${completed ? "checked" : ""} ${assetId && !future ? "" : "disabled"} />
-            <span class="event-type ${typeClass}">${event.tipo}</span>
-            <span class="event-date">${formatDate(event.data)}</span>
-            <span class="event-cycle">Ciclo ${event.ciclo || 1}</span>
-            <strong>${money.format(event.custo || 0)}</strong>
-            <em>${statusLabel}</em>
-          </label>`;
-        })
-        .join("") || "<div class=\"meta\">Nenhum evento previsto.</div>"}
     </div>`;
 
-  summary.querySelectorAll(".asset-event-check input[data-event-key]").forEach((checkbox) => {
+  renderMaintenanceActionList();
+}
+
+function bindMaintenanceActionChecks(container) {
+  container.querySelectorAll(".asset-event-check input[data-event-key]").forEach((checkbox) => {
     checkbox.addEventListener("change", async () => {
       const event = state.recurrenceEvents.find((item) => eventScheduleKey(item) === checkbox.dataset.eventKey);
       if (!event) return;
@@ -2344,6 +2721,7 @@ function buildAssetEvents(asset) {
           status: statusFor(date),
           prioridade: asset.prioridade,
           tipo: "Manutenção",
+          tipoManutencao: asset.tipoManutencao || "preventiva",
           ciclo: cycle,
           provisionStart: index === 0 ? cycleStart : maintenanceDates[index - 1],
         });
@@ -2390,20 +2768,21 @@ function buildAssetEvents(asset) {
 
 function syncAssetSchedule(asset) {
   const previousEvents = state.recurrenceEvents.filter((event) => event.assetId === asset.id);
+  const hasManagedPlan = previousEvents.some((event) => event.manualEntry || event.recurrenceGroup);
   const canRebuildSchedule = Boolean(
     asset.dataInstalacao &&
     asset.expectativaVidaAnos &&
     asset.periodicidadeMeses,
   );
 
-  if (!canRebuildSchedule && previousEvents.length) {
+  if (hasManagedPlan || (!canRebuildSchedule && previousEvents.length)) {
     previousEvents.forEach((event) => {
       event.sistema = asset.sistema;
       event.ambiente = asset.ambiente;
       event.ativo = asset.ativo;
-      event.acao = asset.acao || event.acao;
       event.prioridade = asset.prioridade;
-      if (!String(event.tipo || "").startsWith("Substit")) {
+      if (!hasManagedPlan && !String(event.tipo || "").startsWith("Substit")) {
+        event.acao = asset.acao || event.acao;
         event.custo = Number(asset.custoTotal || 0);
       }
     });
@@ -2478,8 +2857,10 @@ async function deleteAsset(assetId) {
     state.assets = state.assets.filter((item) => item.id !== assetId);
     state.recurrenceEvents = state.recurrenceEvents.filter((event) => event.assetId !== assetId);
     if (focusedAssetId === assetId) focusedAssetId = "";
-    document.querySelector("#asset-dialog").close();
+    const summaryDialog = document.querySelector("#asset-summary-dialog");
+    if (summaryDialog.open) summaryDialog.close();
     render();
+    activateView("assets");
   } catch {
     window.alert("Não foi possível excluir o ativo no Supabase.");
   }
@@ -2540,6 +2921,11 @@ function databaseEventBody(event, asset, planId) {
       asset_name: event.ativo || asset.ativo,
       priority: event.prioridade || "",
       system: event.sistema || "",
+      maintenance_type: event.tipoManutencao || asset.tipoManutencao || "preventiva",
+      responsible: event.responsavel || "",
+      manual_entry: event.manualEntry === true,
+      recurrence_group: event.recurrenceGroup || "",
+      recurrence_months: Number(event.periodicidadeMeses || 0) || null,
     },
   };
 }
@@ -2571,8 +2957,18 @@ async function saveAsset() {
   }
   const id = document.querySelector("#asset-id").value || `ATIVO-${Date.now()}`;
   const periodicidadeMeses = Number(document.querySelector("#asset-periodicidade").value || 0);
+  const tipoManutencao = document.querySelector("#asset-maintenance-type").value || "preventiva";
   const ultimaManutencao = document.querySelector("#asset-ultima").value;
-  const proximaManutencao = nextDate(ultimaManutencao, periodicidadeMeses);
+  const dataInstalacao = document.querySelector("#asset-instalacao").value;
+  const todayKey = dateInputValue(new Date());
+  const firstPreventiveAction = editingMaintenanceActions
+    .filter((event) =>
+      event.tipoManutencao === "preventiva" &&
+      dateInputValue(event.data) >= todayKey
+    )
+    .sort(byDate)[0];
+  const proximaManutencao = firstPreventiveAction?.data ||
+    nextDate(ultimaManutencao || dataInstalacao, periodicidadeMeses);
   const custoUnitario = parseCurrencyInput(document.querySelector("#asset-custo").value);
   const locationId = document.querySelector("#asset-ambiente").value;
   const systemId = document.querySelector("#asset-sistema").value;
@@ -2589,6 +2985,11 @@ async function saveAsset() {
   const acao = getChoiceValue("acao");
   const prioridade = getChoiceValue("prioridade");
   const responsavel = getChoiceValue("responsavel");
+  const index = state.assets.findIndex((item) => item.id === id);
+  const previous = index >= 0 ? state.assets[index] : null;
+  const galeria = editingPhoto
+    ? [{ url: editingPhoto, legenda: "" }]
+    : (previous?.galeria || []);
   const asset = {
     id,
     ambiente,
@@ -2601,11 +3002,12 @@ async function saveAsset() {
     quantidade: 1,
     unidade: "un",
     periodicidadeMeses,
+    tipoManutencao,
     ultimaManutencao,
     proximaManutencao,
     custoUnitario,
     custoTotal: custoUnitario,
-    dataInstalacao: document.querySelector("#asset-instalacao").value,
+    dataInstalacao,
     expectativaVidaAnos: Number(document.querySelector("#asset-vida").value || 0),
     valorAtivo: parseCurrencyInput(document.querySelector("#asset-valor").value),
     fimVida: getLifeEndMode(),
@@ -2620,6 +3022,7 @@ async function saveAsset() {
     responsavel,
     observacoes: "",
     foto: editingPhoto,
+    galeria,
     buildingId: targetBuildingId,
     technicalBuildingId: targetBuildingId,
     buildingAssignmentPending: false,
@@ -2627,8 +3030,6 @@ async function saveAsset() {
     systemId,
   };
 
-  const index = state.assets.findIndex((item) => item.id === id);
-  const previous = index >= 0 ? state.assets[index] : null;
   asset.dbId = previous?.dbId || "";
   asset.planDbId = previous?.planDbId || "";
   asset.dbProperties = previous?.dbProperties || {};
@@ -2665,6 +3066,7 @@ async function saveAsset() {
       properties: {
         ...asset.dbProperties,
         building_assignment_pending: false,
+        galeria: asset.galeria,
       },
     };
     const savedRows = await supabaseRequest(asset.dbId
@@ -2679,7 +3081,19 @@ async function saveAsset() {
 
     if (index >= 0) state.assets[index] = asset;
     else state.assets.unshift(asset);
-    syncAssetSchedule(asset);
+    if (editingMaintenanceActions.length) {
+      state.recurrenceEvents = state.recurrenceEvents.filter((event) => event.assetId !== asset.id);
+      state.recurrenceEvents.push(...editingMaintenanceActions.map((event) => ({
+        ...event,
+        assetId: asset.id,
+        sistema: asset.sistema,
+        ambiente: asset.ambiente,
+        ativo: asset.ativo,
+        prioridade: asset.prioridade,
+      })));
+    } else {
+      syncAssetSchedule(asset);
+    }
 
     const hasMaintenancePlan = Boolean(acao || periodicidadeMeses || ultimaManutencao || custoUnitario);
     if (hasMaintenancePlan || asset.planDbId) {
@@ -2688,7 +3102,7 @@ async function saveAsset() {
         building_id: targetBuildingId,
         asset_id: asset.dbId,
         name: acao || "Manutenção periódica",
-        maintenance_type: "preventiva",
+        maintenance_type: tipoManutencao,
         periodicity_months: periodicidadeMeses || null,
         estimated_cost: custoUnitario || 0,
         start_date: asset.dataInstalacao || ultimaManutencao || proximaManutencao || null,
@@ -2705,8 +3119,9 @@ async function saveAsset() {
       asset.planDbId = planRows[0].id;
     }
     await persistAssetSchedule(asset, asset.planDbId);
-    document.querySelector("#asset-dialog").close();
     await loadBuildingData();
+    focusedAssetId = asset.id;
+    activateView("assets");
   } catch (error) {
     window.alert(error.message || "Não foi possível salvar o ativo no Supabase.");
   }
@@ -2806,6 +3221,13 @@ document.querySelector("#delete-asset").addEventListener("click", () => {
   const assetId = document.querySelector("#asset-id").value;
   if (assetId) deleteAsset(assetId);
 });
+document.querySelector("#cancel-asset-edit").addEventListener("click", closeAssetEditor);
+document.querySelector("#back-to-assets").addEventListener("click", closeAssetEditor);
+document.querySelector("#asset-summary-edit").addEventListener("click", () => {
+  const assetId = document.querySelector("#asset-summary-dialog").dataset.assetId;
+  if (!assetId) return;
+  openDialog(state.assets.find((asset) => asset.id === assetId));
+});
 document.querySelector("#asset-search").addEventListener("input", renderAssets);
 document.querySelector("#system-filter").addEventListener("change", renderAssets);
 document.querySelector("#asset-sort").addEventListener("change", renderAssets);
@@ -2883,10 +3305,52 @@ document.querySelector("#asset-building").addEventListener("change", (event) => 
   setupAssetScopeChoices(event.target.value);
 });
 ["ambiente", "sistema", "ativo", "componente", "acao", "prioridade", "responsavel"].forEach((id) => {
-  document.querySelector(`#asset-${id}`).addEventListener("change", () => updateChoiceMode(id));
+  document.querySelector(`#asset-${id}`).addEventListener("change", () => {
+    updateChoiceMode(id);
+    if (id === "acao" || id === "responsavel") renderAssetSummary();
+  });
 });
-["asset-instalacao", "asset-vida", "asset-periodicidade", "asset-custo", "asset-valor", "asset-ciclos"].forEach((id) => {
+["asset-instalacao", "asset-vida", "asset-periodicidade", "asset-ultima", "asset-custo", "asset-valor", "asset-ciclos"].forEach((id) => {
   document.querySelector(`#${id}`).addEventListener("input", renderAssetSummary);
+});
+document.querySelector("#asset-maintenance-type").addEventListener("change", renderAssetSummary);
+document.querySelector("#show-maintenance-action-form").addEventListener("click", () => {
+  const form = document.querySelector("#maintenance-action-form");
+  form.hidden = false;
+  if (!document.querySelector("#maintenance-action-date").value) {
+    document.querySelector("#maintenance-action-date").value = dateInputValue(new Date());
+  }
+  document.querySelector("#maintenance-action-name").focus();
+});
+document.querySelector("#cancel-maintenance-action").addEventListener("click", () => {
+  document.querySelector("#maintenance-action-form").hidden = true;
+  resetMaintenanceActionForm();
+});
+document.querySelector("#clear-maintenance-action").addEventListener("click", resetMaintenanceActionForm);
+document.querySelector("#maintenance-action-type").addEventListener("change", updateMaintenanceActionFormMode);
+document.querySelector("#add-maintenance-action").addEventListener("click", addMaintenanceAction);
+document.querySelector("#maintenance-action-cost").addEventListener("blur", (event) => {
+  if (event.target.value.trim()) event.target.value = formatCurrencyInput(event.target.value);
+});
+document.querySelector("#asset-maintenance-plan-list").addEventListener("click", (event) => {
+  const editButton = event.target.closest(".edit-maintenance-rule");
+  if (editButton) {
+    editMaintenanceRule(editButton.dataset.group);
+    return;
+  }
+  const removeButton = event.target.closest(".maintenance-rule-remove");
+  if (!removeButton) return;
+  editingMaintenanceActions = editingMaintenanceActions.filter(
+    (item) => item.recurrenceGroup !== removeButton.dataset.group,
+  );
+  syncLegacyPlanFromActions();
+  renderMaintenancePlanList();
+  renderMaintenanceActionList();
+  renderAssetSummary();
+});
+document.querySelector("#asset-maintenance-actions").addEventListener("change", (event) => {
+  const checkbox = event.target.closest(".maintenance-action-check");
+  if (checkbox) updateMaintenanceActionCompletion(checkbox);
 });
 ["asset-custo", "asset-valor"].forEach((id) => {
   const input = document.querySelector(`#${id}`);
@@ -2913,11 +3377,16 @@ document.querySelector("#reset-data").addEventListener("click", async () => {
 document.querySelector("#asset-list").addEventListener("click", (event) => {
   const button = event.target.closest(".edit-asset");
   const deleteButton = event.target.closest(".delete-asset-card");
+  const card = event.target.closest(".asset-card");
   if (deleteButton) {
     deleteAsset(deleteButton.dataset.id);
     return;
   }
-  if (button) openDialog(state.assets.find((asset) => asset.id === button.dataset.id));
+  if (button) {
+    openDialog(state.assets.find((asset) => asset.id === button.dataset.id));
+    return;
+  }
+  if (card) openAssetSummary(state.assets.find((asset) => asset.id === card.dataset.id));
 });
 document.querySelector("#asset-foto").addEventListener("change", (event) => {
   const [file] = event.target.files;
