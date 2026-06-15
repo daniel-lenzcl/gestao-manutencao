@@ -101,6 +101,8 @@ const normativeSystems = [
 let state = loadState();
 let editingPhoto = "";
 let editingMaintenanceActions = [];
+let editingMaintenanceDetailsPhotos = [];
+let editingMaintenanceRulePhotos = [];
 let focusedAssetId = "";
 let calendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let timelineCalendarCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -381,6 +383,13 @@ function mapDatabaseEvent(event, externalCodeByAsset) {
     periodicidadeMeses: Number(event.properties?.recurrence_months || 0),
     manualEntry: event.properties?.manual_entry === true,
     recurrenceGroup: event.properties?.recurrence_group || "",
+    alarmeAntecedenciaDias: Number(event.properties?.alarm_lead_days || 7),
+    alarmeNoDia: event.properties?.alarm_on_due_date !== false,
+    alarmeCanais: Array.isArray(event.properties?.alarm_channels) ? event.properties.alarm_channels : ["email"],
+    alarmeEmail: event.properties?.alarm_email || "",
+    alarmeTelefone: event.properties?.alarm_phone || "",
+    descricao: event.notes || "",
+    galeria: Array.isArray(event.properties?.galeria) ? event.properties.galeria : [],
     ciclo: Number(event.cycle_number || 1),
     provisionStart: event.provision_start_date || "",
     realizada: event.completed === null ? undefined : event.completed,
@@ -2195,6 +2204,46 @@ function assetSummaryDialogHtml(asset) {
   const costs = assetCostSummary(asset);
   const building = asset.buildingAssignmentPending ? "Edificação pendente" : buildingName(asset.buildingId);
   const photo = asset.foto ? `<img src="${asset.foto}" alt="Foto de ${asset.ativo || "ativo"}" />` : "<span>Sem imagem</span>";
+  const todayKey = calendarDateKey(new Date());
+  const actions = state.recurrenceEvents
+    .filter((event) => event.assetId === asset.id && !String(event.tipo || "").startsWith("Substit"))
+    .sort(byDate);
+  const actionsHtml = actions.length
+    ? actions
+        .map((event) => {
+          const eventDate = dateInputValue(event.data);
+          const completed = isEventCompleted(event);
+          const timeClass = eventDate > todayKey
+            ? "is-future"
+            : eventDate === todayKey
+              ? "is-today"
+              : completed
+                ? "is-past-completed"
+                : "is-past-missed";
+          const statusLabel = completed
+            ? "Realizada"
+            : eventDate > todayKey
+              ? "Futura"
+              : eventDate === todayKey
+                ? "Hoje"
+                : "Não realizada";
+          const typeLabel = event.tipoManutencao === "corretiva" ? "Corretiva" : "Preventiva";
+          const records = [
+            event.descricao ? "descrição" : "",
+            event.galeria?.length ? `${event.galeria.length} ${event.galeria.length === 1 ? "foto" : "fotos"}` : "",
+          ].filter(Boolean).join(" · ");
+          return `<div class="asset-popup-action-row ${timeClass}">
+            <span class="asset-popup-action-mark" aria-hidden="true">${completed ? "✓" : "•"}</span>
+            <div class="asset-popup-action-name">
+              <strong>${escapeHtml(event.acao || event.tipo || "Manutenção")}</strong>
+              <span>${typeLabel} · ${statusLabel}${records ? ` · ${records}` : ""}</span>
+            </div>
+            <time datetime="${eventDate}">${event.data ? formatDate(event.data) : "Sem data"}</time>
+            <strong class="asset-popup-action-cost">${money.format(Number(event.custo) || 0)}</strong>
+          </div>`;
+        })
+        .join("")
+    : `<div class="asset-popup-actions-empty">Nenhuma ação de manutenção programada.</div>`;
   return `<div class="asset-summary-hero">
     <div class="thumb asset-summary-thumb">${photo}</div>
     <div class="asset-summary-main">
@@ -2219,7 +2268,14 @@ function assetSummaryDialogHtml(asset) {
     <div class="summary-kpi"><span>Provisionamento mensal</span><strong>${costs.lifeYears ? money.format(costs.monthlyFullCycle) : "Não calculado"}</strong></div>
     <div class="summary-kpi"><span>Custo total no período</span><strong>${costs.lifeYears ? money.format(costs.totalPeriod) : "Não calculado"}</strong></div>
     <div class="summary-kpi"><span>Fim da vida</span><strong>${asset.fimVida === "renovar" ? "Renovar" : "Encerrar"}</strong></div>
-  </div>`;
+  </div>
+  <section class="asset-popup-actions">
+    <div class="asset-popup-actions-heading">
+      <strong>Ações de manutenção</strong>
+      <span>${actions.length} ${actions.length === 1 ? "ação" : "ações"}</span>
+    </div>
+    <div class="asset-popup-action-list">${actionsHtml}</div>
+  </section>`;
 }
 
 function openAssetSummary(asset) {
@@ -2309,7 +2365,28 @@ function resetMaintenanceActionForm() {
   document.querySelector("#maintenance-action-cost").value = "";
   document.querySelector("#maintenance-action-responsible").value = "";
   document.querySelector("#maintenance-action-status").value = "realizada";
+  document.querySelector("#maintenance-action-alarm-lead").value = "7";
+  document.querySelector("#maintenance-alarm-email-channel").checked = true;
+  document.querySelector("#maintenance-alarm-sms-channel").checked = false;
+  document.querySelector("#maintenance-alarm-whatsapp-channel").checked = false;
+  document.querySelector("#maintenance-alarm-email").value = currentUserEmail || "";
+  document.querySelector("#maintenance-alarm-phone").value = "";
+  document.querySelector("#maintenance-action-description").value = "";
+  document.querySelector("#maintenance-action-photos").value = "";
+  editingMaintenanceRulePhotos = [];
+  renderMaintenanceRuleGallery();
   updateMaintenanceActionFormMode();
+}
+
+function renderMaintenanceRuleGallery() {
+  const gallery = document.querySelector("#maintenance-action-gallery");
+  gallery.innerHTML = editingMaintenanceRulePhotos.length
+    ? editingMaintenanceRulePhotos.map((photo, index) => `
+      <figure class="maintenance-action-photo">
+        <img src="${photo.url}" alt="Foto ${index + 1} da ação" />
+        <button class="maintenance-rule-photo-remove" data-photo-index="${index}" type="button" aria-label="Remover foto ${index + 1}">×</button>
+      </figure>`).join("")
+    : "";
 }
 
 function maintenancePlanRules() {
@@ -2335,11 +2412,19 @@ function renderMaintenancePlanList() {
         const periodicity = corrective
           ? "Pontual"
           : `${Number(rule.periodicidadeMeses || 0)} ${Number(rule.periodicidadeMeses || 0) === 1 ? "mês" : "meses"}`;
+        const alarmChannels = (rule.alarmeCanais || []).map((channel) => ({
+          email: "e-mail",
+          sms: "SMS",
+          whatsapp: "WhatsApp",
+        })[channel] || channel).join(", ");
+        const alarmSummary = corrective
+          ? ""
+          : ` · alarmes ${Number(rule.alarmeAntecedenciaDias || 7)} dias antes e no dia${alarmChannels ? ` por ${alarmChannels}` : ""}`;
         return `<div class="maintenance-plan-row ${corrective ? "corrective" : "preventive"}">
           <span class="maintenance-plan-number">${index + 1}.</span>
           <div class="maintenance-plan-name">
             <strong>${escapeHtml(rule.acao || "Manutenção")}</strong>
-            <span>${corrective ? "Corretiva" : "Preventiva recorrente"}</span>
+            <span>${corrective ? "Corretiva" : `Preventiva recorrente${alarmSummary}`}</span>
           </div>
           <strong class="maintenance-plan-period">${periodicity}</strong>
           <strong class="maintenance-plan-cost">${money.format(rule.custo || 0)}</strong>
@@ -2365,6 +2450,17 @@ function editMaintenanceRule(group) {
   document.querySelector("#maintenance-action-cost").value = formatCurrencyInput(Number(rule.custo || 0));
   document.querySelector("#maintenance-action-responsible").value = rule.responsavel || "";
   document.querySelector("#maintenance-action-status").value = rule.realizada === true ? "realizada" : "prevista";
+  document.querySelector("#maintenance-action-alarm-lead").value = String(rule.alarmeAntecedenciaDias || 7);
+  document.querySelector("#maintenance-alarm-email-channel").checked = (rule.alarmeCanais || ["email"]).includes("email");
+  document.querySelector("#maintenance-alarm-sms-channel").checked = (rule.alarmeCanais || []).includes("sms");
+  document.querySelector("#maintenance-alarm-whatsapp-channel").checked = (rule.alarmeCanais || []).includes("whatsapp");
+  document.querySelector("#maintenance-alarm-email").value = rule.alarmeEmail || currentUserEmail || "";
+  document.querySelector("#maintenance-alarm-phone").value = rule.alarmeTelefone || "";
+  document.querySelector("#maintenance-action-description").value = rule.descricao || "";
+  editingMaintenanceRulePhotos = Array.isArray(rule.galeria)
+    ? rule.galeria.map((photo) => ({ ...photo }))
+    : [];
+  renderMaintenanceRuleGallery();
   updateMaintenanceActionFormMode();
   document.querySelector("#maintenance-action-form").hidden = false;
   document.querySelector("#maintenance-action-name").focus();
@@ -2419,17 +2515,102 @@ function renderMaintenanceActionList() {
         const completionControl = corrective
           ? `<span class="maintenance-action-status-mark ${completed ? "is-completed" : ""}" aria-label="${statusLabel}">${completed ? "✓" : "•"}</span>`
           : `<input class="maintenance-action-check" type="checkbox" data-event-key="${escapeHtml(eventScheduleKey(event))}" ${completed ? "checked" : ""} ${checkDisabled} aria-label="Marcar ${escapeHtml(event.acao || "manutenção")} como realizada" />`;
-        return `<label class="maintenance-action-row ${typeClass} ${timeClass}">
+        const detailSummary = [
+          event.descricao ? "descrição" : "",
+          event.galeria?.length ? `${event.galeria.length} ${event.galeria.length === 1 ? "foto" : "fotos"}` : "",
+        ].filter(Boolean).join(" · ");
+        return `<div class="maintenance-action-row ${typeClass} ${timeClass}">
           ${completionControl}
           <div class="maintenance-action-name">
             <strong>${escapeHtml(event.acao || "Manutenção")}</strong>
-            <span>${typeLabel} · ${statusLabel}</span>
+            <span>${typeLabel} · ${statusLabel}${detailSummary ? ` · ${detailSummary}` : ""}</span>
           </div>
           <time>${formatDate(event.data)}</time>
           <strong class="maintenance-action-cost">${money.format(event.custo || 0)}</strong>
-        </label>`;
+          <button class="ghost-button maintenance-action-details" data-event-key="${escapeHtml(eventScheduleKey(event))}" type="button">Detalhes</button>
+        </div>`;
       }).join("")
     : `<div class="empty-state compact-empty">Nenhuma ação cadastrada.</div>`;
+}
+
+function renderMaintenanceDetailsGallery() {
+  const gallery = document.querySelector("#maintenance-details-gallery");
+  gallery.innerHTML = editingMaintenanceDetailsPhotos.length
+    ? editingMaintenanceDetailsPhotos.map((photo, index) => `
+      <figure class="maintenance-details-photo">
+        <img src="${photo.url}" alt="Foto ${index + 1} da manutenção" />
+        <button class="maintenance-photo-remove" data-photo-index="${index}" type="button" aria-label="Remover foto ${index + 1}">×</button>
+      </figure>`).join("")
+    : `<div class="maintenance-details-gallery-empty">Nenhuma foto adicionada.</div>`;
+}
+
+function openMaintenanceActionDetails(eventKey) {
+  const action = editingMaintenanceActions.find((event) => eventScheduleKey(event) === eventKey);
+  if (!action) return;
+  document.querySelector("#maintenance-details-event-key").value = eventKey;
+  document.querySelector("#maintenance-details-title").textContent = action.acao || "Manutenção";
+  document.querySelector("#maintenance-details-date").textContent = action.data ? formatDate(action.data) : "Sem data";
+  document.querySelector("#maintenance-details-description").value = action.descricao || "";
+  document.querySelector("#maintenance-details-photos").value = "";
+  editingMaintenanceDetailsPhotos = Array.isArray(action.galeria)
+    ? action.galeria.map((photo) => ({ ...photo }))
+    : [];
+  renderMaintenanceDetailsGallery();
+  document.querySelector("#maintenance-action-details-dialog").showModal();
+}
+
+function saveMaintenanceActionDetails() {
+  const eventKey = document.querySelector("#maintenance-details-event-key").value;
+  const action = editingMaintenanceActions.find((event) => eventScheduleKey(event) === eventKey);
+  if (!action) return;
+  action.descricao = document.querySelector("#maintenance-details-description").value.trim();
+  action.galeria = editingMaintenanceDetailsPhotos.map((photo) => ({ ...photo }));
+  renderMaintenanceActionList();
+  document.querySelector("#maintenance-action-details-dialog").close();
+}
+
+async function imageFileToDataUrl(file) {
+  const metadata = {
+    legenda: "",
+    nome: file.name || "",
+    data: calendarDateKey(new Date()),
+  };
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maximumSide = 1600;
+    const scale = Math.min(1, maximumSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return {
+      ...metadata,
+      url: canvas.toDataURL("image/jpeg", 0.82),
+    };
+  } catch {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = () => resolve({
+        url: reader.result,
+        ...metadata,
+      });
+      reader.readAsDataURL(file);
+    });
+  }
+}
+
+async function addMaintenanceDetailPhotos(files) {
+  const availableSlots = Math.max(0, 8 - editingMaintenanceDetailsPhotos.length);
+  const selectedFiles = [...files].filter((file) => file.type.startsWith("image/")).slice(0, availableSlots);
+  if (!selectedFiles.length) {
+    if (!availableSlots) window.alert("Esta ação já possui o limite de 8 fotos.");
+    return;
+  }
+  const photos = await Promise.all(selectedFiles.map(imageFileToDataUrl));
+  editingMaintenanceDetailsPhotos.push(...photos);
+  renderMaintenanceDetailsGallery();
 }
 
 async function updateMaintenanceActionCompletion(checkbox) {
@@ -2480,8 +2661,29 @@ function addMaintenanceAction() {
   const cost = parseCurrencyInput(document.querySelector("#maintenance-action-cost").value);
   const responsible = document.querySelector("#maintenance-action-responsible").value.trim();
   const correctiveStatus = document.querySelector("#maintenance-action-status").value;
+  const description = document.querySelector("#maintenance-action-description").value.trim();
+  const alarmLeadDays = Number(document.querySelector("#maintenance-action-alarm-lead").value || 7);
+  const alarmChannels = [
+    document.querySelector("#maintenance-alarm-email-channel").checked ? "email" : "",
+    document.querySelector("#maintenance-alarm-sms-channel").checked ? "sms" : "",
+    document.querySelector("#maintenance-alarm-whatsapp-channel").checked ? "whatsapp" : "",
+  ].filter(Boolean);
+  const alarmEmail = document.querySelector("#maintenance-alarm-email").value.trim();
+  const alarmPhone = document.querySelector("#maintenance-alarm-phone").value.trim();
   if (!name || !date || (type === "preventiva" && !frequency)) {
     window.alert("Informe o nome, a data e, para a preventiva, a frequência.");
+    return;
+  }
+  if (type === "preventiva" && !alarmChannels.length) {
+    window.alert("Selecione ao menos um canal para o alarme.");
+    return;
+  }
+  if (type === "preventiva" && alarmChannels.includes("email") && !alarmEmail) {
+    window.alert("Informe o e-mail que receberá o alarme.");
+    return;
+  }
+  if (type === "preventiva" && alarmChannels.some((channel) => channel === "sms" || channel === "whatsapp") && !alarmPhone) {
+    window.alert("Informe o telefone com DDD para receber SMS ou WhatsApp.");
     return;
   }
 
@@ -2505,6 +2707,13 @@ function addMaintenanceAction() {
     manualEntry: true,
     recurrenceGroup: group,
     ciclo: 1,
+    descricao: description,
+    galeria: editingMaintenanceRulePhotos.map((photo) => ({ ...photo })),
+    alarmeAntecedenciaDias: type === "preventiva" ? alarmLeadDays : 0,
+    alarmeNoDia: type === "preventiva",
+    alarmeCanais: type === "preventiva" ? alarmChannels : [],
+    alarmeEmail: type === "preventiva" ? alarmEmail : "",
+    alarmeTelefone: type === "preventiva" ? alarmPhone : "",
   };
   if (type === "corretiva") {
     editingMaintenanceActions.push({
@@ -2541,9 +2750,15 @@ function addMaintenanceAction() {
     editingMaintenanceActions = editingMaintenanceActions.map((event) => {
       if (event.recurrenceGroup !== group) return event;
       const previous = previousByDate.get(dateInputValue(event.data));
-      if (!previous || previous.realizada === undefined) return event;
-      return {
+      if (!previous) return event;
+      const preserved = {
         ...event,
+        descricao: previous.descricao || event.descricao || "",
+        galeria: Array.isArray(previous.galeria) ? previous.galeria : (event.galeria || []),
+      };
+      if (previous.realizada === undefined) return preserved;
+      return {
+        ...preserved,
         realizada: previous.realizada,
         status: previous.status,
         dataExecucao: previous.dataExecucao || "",
@@ -2915,6 +3130,7 @@ function databaseEventBody(event, asset, planId) {
     completed: event.realizada === undefined ? null : event.realizada,
     cycle_number: Number(event.ciclo || 1),
     provision_start_date: dateInputValue(event.provisionStart) || null,
+    notes: event.descricao || null,
     properties: {
       action: event.acao || "",
       environment: event.ambiente || "",
@@ -2926,6 +3142,12 @@ function databaseEventBody(event, asset, planId) {
       manual_entry: event.manualEntry === true,
       recurrence_group: event.recurrenceGroup || "",
       recurrence_months: Number(event.periodicidadeMeses || 0) || null,
+      galeria: Array.isArray(event.galeria) ? event.galeria : [],
+      alarm_lead_days: Number(event.alarmeAntecedenciaDias || 0) || null,
+      alarm_on_due_date: event.alarmeNoDia === true,
+      alarm_channels: Array.isArray(event.alarmeCanais) ? event.alarmeCanais : [],
+      alarm_email: event.alarmeEmail || null,
+      alarm_phone: event.alarmeTelefone || null,
     },
   };
 }
@@ -3329,6 +3551,28 @@ document.querySelector("#cancel-maintenance-action").addEventListener("click", (
 document.querySelector("#clear-maintenance-action").addEventListener("click", resetMaintenanceActionForm);
 document.querySelector("#maintenance-action-type").addEventListener("change", updateMaintenanceActionFormMode);
 document.querySelector("#add-maintenance-action").addEventListener("click", addMaintenanceAction);
+document.querySelector("#maintenance-action-photos").addEventListener("change", async (event) => {
+  const availableSlots = Math.max(0, 8 - editingMaintenanceRulePhotos.length);
+  const files = [...event.target.files]
+    .filter((file) => file.type.startsWith("image/"))
+    .slice(0, availableSlots);
+  try {
+    const photos = await Promise.all(files.map(imageFileToDataUrl));
+    editingMaintenanceRulePhotos.push(...photos);
+    renderMaintenanceRuleGallery();
+    if (!availableSlots) window.alert("Esta ação já possui o limite de 8 fotos.");
+  } catch {
+    window.alert("Não foi possível ler uma das imagens selecionadas.");
+  } finally {
+    event.target.value = "";
+  }
+});
+document.querySelector("#maintenance-action-gallery").addEventListener("click", (event) => {
+  const removeButton = event.target.closest(".maintenance-rule-photo-remove");
+  if (!removeButton) return;
+  editingMaintenanceRulePhotos.splice(Number(removeButton.dataset.photoIndex), 1);
+  renderMaintenanceRuleGallery();
+});
 document.querySelector("#maintenance-action-cost").addEventListener("blur", (event) => {
   if (event.target.value.trim()) event.target.value = formatCurrencyInput(event.target.value);
 });
@@ -3352,6 +3596,26 @@ document.querySelector("#asset-maintenance-actions").addEventListener("change", 
   const checkbox = event.target.closest(".maintenance-action-check");
   if (checkbox) updateMaintenanceActionCompletion(checkbox);
 });
+document.querySelector("#asset-maintenance-actions").addEventListener("click", (event) => {
+  const detailsButton = event.target.closest(".maintenance-action-details");
+  if (detailsButton) openMaintenanceActionDetails(detailsButton.dataset.eventKey);
+});
+document.querySelector("#maintenance-details-photos").addEventListener("change", async (event) => {
+  try {
+    await addMaintenanceDetailPhotos(event.target.files);
+  } catch {
+    window.alert("Não foi possível ler uma das imagens selecionadas.");
+  } finally {
+    event.target.value = "";
+  }
+});
+document.querySelector("#maintenance-details-gallery").addEventListener("click", (event) => {
+  const removeButton = event.target.closest(".maintenance-photo-remove");
+  if (!removeButton) return;
+  editingMaintenanceDetailsPhotos.splice(Number(removeButton.dataset.photoIndex), 1);
+  renderMaintenanceDetailsGallery();
+});
+document.querySelector("#save-maintenance-details").addEventListener("click", saveMaintenanceActionDetails);
 ["asset-custo", "asset-valor"].forEach((id) => {
   const input = document.querySelector(`#${id}`);
   input.addEventListener("focus", () => {

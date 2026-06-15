@@ -2069,10 +2069,132 @@ dialog::backdrop {
 
 .compact-form-grid input,
 .compact-form-grid select,
+.compact-form-grid textarea,
 .compact-form-grid .money-input {
   font-size: 12px;
   min-height: 32px;
   padding: 5px 7px;
+}
+
+.compact-form-grid textarea {
+  font-family: "Segoe UI", sans-serif;
+  min-height: 58px;
+  resize: vertical;
+}
+
+.maintenance-action-photo-field {
+  border: 1px dashed rgba(23, 109, 99, 0.3);
+  border-radius: 7px;
+  padding: 7px;
+}
+
+.maintenance-action-photo-field span {
+  font-size: 9px;
+}
+
+.maintenance-alarm-fields {
+  border: 1px solid rgba(216, 161, 38, 0.4);
+  border-radius: 8px;
+  margin: 0;
+  padding: 8px;
+}
+
+.maintenance-alarm-fields legend {
+  color: #8c6012;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 4px;
+}
+
+.maintenance-alarm-grid {
+  align-items: end;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.maintenance-alarm-grid .mandatory-alarm {
+  align-items: center;
+  background: rgba(216, 161, 38, 0.1);
+  border-radius: 6px;
+  display: flex;
+  min-height: 32px;
+  padding: 5px 7px;
+}
+
+.maintenance-alarm-grid .mandatory-alarm input,
+.maintenance-alarm-channels input {
+  min-height: 14px;
+  width: 14px;
+}
+
+.maintenance-alarm-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  grid-column: 1 / -1;
+}
+
+.maintenance-alarm-channels > span {
+  flex-basis: 100%;
+  font-size: 10px;
+}
+
+.maintenance-alarm-channels label {
+  align-items: center;
+  display: flex;
+}
+
+.maintenance-alarm-fields small {
+  color: var(--muted);
+  display: block;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 9px;
+  margin-top: 6px;
+}
+
+.maintenance-action-form.is-corrective .maintenance-alarm-fields {
+  display: none;
+}
+
+.maintenance-action-gallery {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-top: 7px;
+}
+
+.maintenance-action-photo {
+  aspect-ratio: 4 / 3;
+  border-radius: 6px;
+  margin: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.maintenance-action-photo img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.maintenance-rule-photo-remove {
+  align-items: center;
+  background: rgba(86, 34, 24, 0.88);
+  border: 0;
+  border-radius: 50%;
+  color: white;
+  display: flex;
+  font-size: 13px;
+  height: 22px;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0;
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 22px;
 }
 
 .compact-form-grid .money-input {
@@ -2235,7 +2357,7 @@ dialog::backdrop {
   border-radius: 6px;
   display: grid;
   gap: 8px;
-  grid-template-columns: 22px minmax(0, 1fr) 125px 110px;
+  grid-template-columns: 22px minmax(0, 1fr) 125px 110px 72px;
   min-height: 38px;
   padding: 5px 7px;
   transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
@@ -2355,6 +2477,105 @@ dialog::backdrop {
   text-align: right;
 }
 
+.maintenance-action-details {
+  font-size: 10px;
+  min-height: 27px;
+  padding: 4px 7px;
+}
+
+.maintenance-details-dialog-form {
+  min-width: min(92vw, 680px);
+}
+
+.maintenance-details-date {
+  color: var(--muted);
+  display: block;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.maintenance-description-field,
+.maintenance-photo-field {
+  color: var(--muted);
+  display: grid;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 11px;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.maintenance-description-field textarea {
+  font-family: "Segoe UI", sans-serif;
+  font-size: 12px;
+  min-height: 84px;
+  resize: vertical;
+}
+
+.maintenance-photo-field {
+  border: 1px dashed rgba(23, 109, 99, 0.34);
+  border-radius: 8px;
+  padding: 9px;
+}
+
+.maintenance-photo-field input {
+  font-size: 11px;
+  min-height: 32px;
+  padding: 4px;
+}
+
+.maintenance-photo-field span {
+  font-size: 9px;
+}
+
+.maintenance-details-gallery {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 9px;
+}
+
+.maintenance-details-photo {
+  aspect-ratio: 4 / 3;
+  border-radius: 7px;
+  margin: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.maintenance-details-photo img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.maintenance-photo-remove {
+  align-items: center;
+  background: rgba(86, 34, 24, 0.88);
+  border: 0;
+  border-radius: 50%;
+  color: white;
+  display: flex;
+  font-size: 14px;
+  height: 24px;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0;
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  width: 24px;
+}
+
+.maintenance-details-gallery-empty {
+  color: var(--muted);
+  font-family: "Segoe UI", sans-serif;
+  font-size: 10px;
+  grid-column: 1 / -1;
+  padding: 8px;
+  text-align: center;
+}
+
 .maintenance-action-remove {
   background: transparent;
   border: 0;
@@ -2426,40 +2647,178 @@ dialog::backdrop {
 }
 
 .asset-summary-dialog-form {
-  min-width: min(92vw, 860px);
+  min-width: min(92vw, 780px);
 }
 
 .asset-summary-dialog-body {
   display: grid;
-  gap: 16px;
+  gap: 9px;
 }
 
 .asset-summary-hero {
   align-items: center;
   display: grid;
-  gap: 14px;
-  grid-template-columns: 92px 1fr;
+  gap: 10px;
+  grid-template-columns: 64px 1fr;
 }
 
 .asset-summary-thumb {
-  height: 92px;
-  width: 92px;
+  height: 64px;
+  width: 64px;
 }
 
 .asset-summary-main strong {
   display: block;
-  font-size: 24px;
+  font-size: 18px;
+}
+
+.asset-summary-main .meta {
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .summary-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.asset-summary-main .badge {
+  font-size: 9px;
+  padding: 3px 6px;
 }
 
 .asset-summary-grid {
+  gap: 5px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 0;
+}
+
+.asset-summary-grid .summary-kpi {
+  border-radius: 6px;
+  padding: 6px 7px;
+}
+
+.asset-summary-grid .summary-kpi span {
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+.asset-summary-grid .summary-kpi strong {
+  font-size: 12px;
+  line-height: 1.25;
+  margin-top: 2px;
+}
+
+.asset-popup-actions {
+  border: 1px solid rgba(23, 109, 99, 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.asset-popup-actions-heading {
+  align-items: center;
+  background: rgba(23, 109, 99, 0.08);
+  display: flex;
+  font-family: "Segoe UI", sans-serif;
+  justify-content: space-between;
+  padding: 6px 9px;
+}
+
+.asset-popup-actions-heading strong {
+  font-size: 11px;
+}
+
+.asset-popup-actions-heading span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.asset-popup-action-list {
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.asset-popup-action-row {
+  align-items: center;
+  border-top: 1px solid rgba(23, 109, 99, 0.12);
+  display: grid;
+  font-family: "Segoe UI", sans-serif;
+  gap: 7px;
+  grid-template-columns: 14px minmax(0, 1fr) 88px 82px;
+  min-height: 34px;
+  padding: 4px 8px;
+}
+
+.asset-popup-action-row:first-child {
+  border-top: 0;
+}
+
+.asset-popup-action-row.is-future {
+  background: rgba(231, 166, 34, 0.08);
+}
+
+.asset-popup-action-row.is-today {
+  background: rgba(231, 166, 34, 0.2);
+  box-shadow: inset 3px 0 0 #d99300;
+}
+
+.asset-popup-action-row.is-past-completed {
+  background: rgba(23, 109, 99, 0.08);
+  color: var(--ok);
+}
+
+.asset-popup-action-row.is-past-missed {
+  background: rgba(180, 77, 54, 0.07);
+  color: #9d4939;
+  opacity: 0.72;
+}
+
+.asset-popup-action-mark {
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.asset-popup-action-name {
+  min-width: 0;
+}
+
+.asset-popup-action-name strong,
+.asset-popup-action-name span {
+  display: block;
+}
+
+.asset-popup-action-name strong {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-popup-action-name span,
+.asset-popup-action-row time,
+.asset-popup-action-cost {
+  font-size: 9px;
+}
+
+.asset-popup-action-name span {
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+.asset-popup-action-row time,
+.asset-popup-action-cost {
+  text-align: right;
+}
+
+.asset-popup-actions-empty {
+  color: var(--muted);
+  font-family: "Segoe UI", sans-serif;
+  font-size: 10px;
+  padding: 12px;
+  text-align: center;
 }
 
 .summary-grid {
@@ -2733,12 +3092,25 @@ dialog::backdrop {
   }
 
   .asset-summary-hero {
-    grid-template-columns: 1fr;
+    grid-template-columns: 54px 1fr;
   }
 
   .asset-summary-thumb {
-    height: 76px;
-    width: 76px;
+    height: 54px;
+    width: 54px;
+  }
+
+  .asset-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .asset-popup-action-row {
+    gap: 5px;
+    grid-template-columns: 12px minmax(0, 1fr) 72px;
+  }
+
+  .asset-popup-action-cost {
+    display: none;
   }
 
   .asset-section-heading {
@@ -2754,6 +3126,18 @@ dialog::backdrop {
     grid-template-columns: 1fr 1fr;
   }
 
+  .maintenance-action-gallery {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .maintenance-alarm-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-alarm-channels {
+    grid-column: 1;
+  }
+
   .maintenance-plan-row {
     grid-template-columns: 20px minmax(0, 1fr) 70px 82px;
   }
@@ -2764,7 +3148,20 @@ dialog::backdrop {
   }
 
   .maintenance-action-row {
-    grid-template-columns: 20px minmax(0, 1fr) 88px 82px;
+    grid-template-columns: 20px minmax(0, 1fr) 78px;
+  }
+
+  .maintenance-action-cost {
+    display: none;
+  }
+
+  .maintenance-action-details {
+    grid-column: 2 / -1;
+    justify-self: start;
+  }
+
+  .maintenance-details-gallery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .maintenance-action-name {

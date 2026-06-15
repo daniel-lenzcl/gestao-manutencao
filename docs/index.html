@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Manutencao Predial</title>
-    <link rel="stylesheet" href="./styles.css?v=20260612-4" />
+    <link rel="stylesheet" href="./styles.css?v=20260613-3" />
   </head>
   <body class="auth-pending">
     <section class="auth-screen" id="auth-screen" aria-labelledby="auth-title">
@@ -341,13 +341,50 @@
                 <label>Responsável
                   <input id="maintenance-action-responsible" placeholder="Opcional" />
                 </label>
+                <fieldset class="wide-field maintenance-alarm-fields">
+                  <legend>Alarmes da ação preventiva</legend>
+                  <div class="maintenance-alarm-grid">
+                    <label>Alarme antecipado
+                      <select id="maintenance-action-alarm-lead">
+                        <option value="7">1 semana antes</option>
+                        <option value="15">15 dias antes</option>
+                        <option value="30">1 mês antes</option>
+                      </select>
+                    </label>
+                    <label class="mandatory-alarm">
+                      <input checked disabled type="checkbox" />
+                      Alarme no dia da ação (obrigatório)
+                    </label>
+                    <div class="maintenance-alarm-channels">
+                      <span>Canais da mensagem</span>
+                      <label><input id="maintenance-alarm-email-channel" checked type="checkbox" /> E-mail</label>
+                      <label><input id="maintenance-alarm-sms-channel" type="checkbox" /> SMS</label>
+                      <label><input id="maintenance-alarm-whatsapp-channel" type="checkbox" /> WhatsApp</label>
+                    </div>
+                    <label>E-mail
+                      <input id="maintenance-alarm-email" type="email" placeholder="usuario@exemplo.com" />
+                    </label>
+                    <label>Telefone para SMS/WhatsApp
+                      <input id="maintenance-alarm-phone" inputmode="tel" placeholder="+55 85 99999-9999" />
+                    </label>
+                  </div>
+                  <small>O agendamento será salvo agora. O envio começa após conectarmos os provedores de mensagens.</small>
+                </fieldset>
                 <label class="corrective-field">Situação
                   <select id="maintenance-action-status">
                     <option value="realizada">Realizada</option>
                     <option value="prevista">Prevista</option>
                   </select>
                 </label>
+                <label class="wide-field maintenance-action-description">Descrição
+                  <textarea id="maintenance-action-description" rows="3" placeholder="Serviço previsto, orientações ou observações iniciais"></textarea>
+                </label>
+                <label class="wide-field maintenance-action-photo-field">Fotos
+                  <input id="maintenance-action-photos" accept="image/*" capture="environment" multiple type="file" />
+                  <span>As fotos serão associadas às ocorrências geradas por esta ação.</span>
+                </label>
               </div>
+              <div id="maintenance-action-gallery" class="maintenance-action-gallery"></div>
               <div class="compact-form-actions">
                 <button class="ghost-button" id="clear-maintenance-action" type="button">Limpar</button>
                 <button class="primary-button" id="add-maintenance-action" type="button">Adicionar ao plano</button>
@@ -571,8 +608,36 @@
       </form>
     </dialog>
 
+    <dialog id="maintenance-action-details-dialog">
+      <form method="dialog" class="maintenance-details-dialog-form">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Registro da manutenção</p>
+            <h2 id="maintenance-details-title">Detalhes da ação</h2>
+            <span id="maintenance-details-date" class="maintenance-details-date"></span>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Fechar">×</button>
+        </div>
+        <input id="maintenance-details-event-key" type="hidden" />
+        <label class="maintenance-description-field">
+          Descrição, relatório ou observações
+          <textarea id="maintenance-details-description" rows="4" placeholder="Descreva o serviço previsto, o que foi encontrado e o que foi executado."></textarea>
+        </label>
+        <label class="maintenance-photo-field">
+          Fotos da ação
+          <input id="maintenance-details-photos" accept="image/*" capture="environment" multiple type="file" />
+          <span>Adicione fotos do problema, da execução ou do resultado.</span>
+        </label>
+        <div id="maintenance-details-gallery" class="maintenance-details-gallery"></div>
+        <menu class="dialog-actions">
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" id="save-maintenance-details" value="default" type="button">Aplicar</button>
+        </menu>
+      </form>
+    </dialog>
+
     <script src="./supabase-config.js?v=20260610-1"></script>
     <script src="./data/seed-data.js?v=20260610-1"></script>
-    <script src="./app.js?v=20260612-6"></script>
+    <script src="./app.js?v=20260613-3"></script>
   </body>
 </html>
