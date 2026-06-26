@@ -91,6 +91,29 @@ body.auth-required .auth-screen {
   position: relative;
 }
 
+.auth-briefing {
+  background: rgba(9, 45, 40, 0.28);
+  border: 1px solid rgba(255, 250, 240, 0.18);
+  border-radius: 18px;
+  box-shadow: 0 20px 44px rgba(5, 24, 22, 0.18);
+  display: grid;
+  gap: 10px;
+  margin-top: 36px;
+  max-width: 560px;
+  padding: 22px 24px;
+  position: relative;
+  width: min(100%, 560px);
+}
+
+.auth-briefing p {
+  color: rgba(255, 250, 240, 0.9);
+  font-family: "Segoe UI", sans-serif;
+  font-size: clamp(12px, 1.05vw, 14px);
+  font-style: normal;
+  line-height: 1.48;
+  margin: 0;
+}
+
 .auth-building-mark {
   align-items: end;
   display: flex;
@@ -3013,6 +3036,17 @@ dialog::backdrop {
   .auth-visual p {
     font-size: 17px;
     margin-top: 8px;
+  }
+
+  .auth-briefing {
+    margin-top: 20px;
+    padding: 16px;
+  }
+
+  .auth-briefing p {
+    font-size: 12px;
+    line-height: 1.42;
+    margin: 0;
   }
 
   .auth-card {

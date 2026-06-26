@@ -3723,12 +3723,13 @@ document.querySelector("#auth-mode-toggle").addEventListener("click", () => {
 document.querySelectorAll("[data-demo-user]").forEach((button) => {
   button.addEventListener("click", () => {
     setAuthMode("login");
-    const email = button.dataset.demoUser === "owner"
-      ? "demo.proprietario@example.com"
-      : "demo.gestor@example.com";
-    document.querySelector("#login-email").value = email;
-    document.querySelector("#login-password").focus();
-    document.querySelector("#auth-message").textContent = "Digite a senha do usuário de demonstração.";
+    const demoCredentials = button.dataset.demoUser === "owner"
+      ? { email: "demo.proprietario@example.com", password: "Troque-Esta-Senha-01!" }
+      : { email: "demo.gestor@example.com", password: "Troque-Esta-Senha-02!" };
+    document.querySelector("#login-email").value = demoCredentials.email;
+    document.querySelector("#login-password").value = demoCredentials.password;
+    document.querySelector("#auth-message").textContent = "Entrando com o usuário de demonstração...";
+    document.querySelector("#login-form").requestSubmit();
   });
 });
 
